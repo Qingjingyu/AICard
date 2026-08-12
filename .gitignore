@@ -1,0 +1,12 @@
+node_modules/
+.next/
+coverage/
+playwright-report/
+test-results/
+.playwright-cli/
+.env
+.env.local
+.env.*.local
+!.env.example
+*.tsbuildinfo
+.DS_Store
