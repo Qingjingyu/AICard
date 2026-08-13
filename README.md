@@ -2,7 +2,7 @@
 
 AI Card 是面向人类与 AI 的独立身份、鉴权和授权基础设施。Yoyoo 是第一个客户端，但不拥有 AI Card 身份。
 
-当前状态：v0.2 Phase 8A、8B 与 8D 已实现并完成本地自动化自测。首次注册会由 AI Card 原子签发从 `AI_100001` 开始的永久编号；预注册产品可经公共 HTTP 授权接口建立自己的 pairwise Subject、成员映射和短期会话，旗下新产品可由内部运维流程幂等登记。独立参考产品已在桌面和移动端证明同一 Card 跨产品复用且不会生成本地替代身份；Yoyoo Phase 8C 也已通过隔离双数据库和两次独立浏览器会话的跨仓本地验收。生产身份权威切换、真实硬件 Passkey、账号恢复、第三方独立安全审查和生产部署仍未完成，不得用于公网或生产环境。
+当前状态：v0.2 Phase 8A、8B 与 8D 已实现并完成本地自动化自测。首次注册会由 AI Card 原子签发从 `AI_100001` 开始的永久编号；预注册产品可经公共 HTTP 授权接口建立自己的 pairwise Subject、成员映射和短期会话，旗下新产品可由内部运维流程幂等登记。独立参考产品已在桌面和移动端证明同一 Card 跨产品复用且不会生成本地替代身份；Yoyoo Phase 8C 也已通过隔离双数据库和两次独立浏览器会话的跨仓本地验收。`infra/production` 已提供经本地容器演练的独立生产发布包，但真实硬件 Passkey、账号恢复、第三方独立安全审查和生产部署仍未完成，尚不能描述为公网身份权威。
 
 ## Requirements
 
@@ -210,7 +210,7 @@ Token 明文不写入数据库，不提供 refresh token。
 | `npm run production:doctor` | 只读检查生产身份权威配置、migration ledger 和 Yoyoo client 合同 |
 | `npm run verify` | 顺序执行全部门禁 |
 
-`test:integration` 默认使用本机已有或可拉取的 `postgres:17-alpine`。可通过 `AICARD_TEST_POSTGRES_IMAGE` 指定兼容镜像。
+`test:integration` 默认使用本机已有或可拉取的 `postgres:17-alpine`。可通过 `AICARD_TEST_POSTGRES_IMAGE` 指定兼容镜像。正式发布、备份与回滚步骤见 `infra/production/README.md`。
 
 ## Migration Rules
 
@@ -228,7 +228,7 @@ Token 明文不写入数据库，不提供 refresh token。
 - Agent 接入 API 只保存票据/查询秘密哈希和节点公钥；匿名接口受 schema、签名或秘密证明及速率限制保护。
 - 平台授权只接受预注册客户端、精确 redirect URI、S256 PKCE 和 scope allowlist；授权码单次消费，token 绑定 client、audience、grant、pairwise Subject 和 scopes。
 - 平台撤销、refresh family 重放检测和受保护资源的 active grant 检查已实现并自测。
-- 当前没有账号找回、密码更换、多因子强制策略或独立安全审查；公网部署仍被明确禁止。
-- 当前版本只允许本地或明确受保护环境部署。
+- 当前没有账号找回、密码更换、多因子强制策略或独立安全审查；对外开放注册仍需单独安全验收。
+- 当前生产包只面向受控的单用户首发，不代表已完成公共多用户发布。
 
 详细设计见 [Product-Spec.md](./Product-Spec.md)、[统一账号协议 v0.2](./docs/protocol-v0.2.md)、[历史协议 v0.1](./docs/protocol-v0.1.md) 和[威胁模型](./docs/security-threat-model.md)。

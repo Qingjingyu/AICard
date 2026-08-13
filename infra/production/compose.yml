@@ -1,0 +1,79 @@
+name: aicard-public
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  APP_ORIGIN: https://${AICARD_DOMAIN:?AICARD_DOMAIN is required}
+  DATABASE_URL: postgresql://aicard:${POSTGRES_PASSWORD}@postgres:5432/aicard
+  LOG_LEVEL: info
+  WEBAUTHN_RP_NAME: AI Card
+  WEBAUTHN_RP_ID: ${AICARD_DOMAIN:?AICARD_DOMAIN is required}
+  WEBAUTHN_ORIGIN: https://${AICARD_DOMAIN:?AICARD_DOMAIN is required}
+  AICARD_PRODUCTION_YOYOO_CLIENT_ID: ${AICARD_PRODUCTION_YOYOO_CLIENT_ID:?AICARD_PRODUCTION_YOYOO_CLIENT_ID is required}
+  AICARD_PRODUCTION_YOYOO_REDIRECT_URI: ${AICARD_PRODUCTION_YOYOO_REDIRECT_URI:?AICARD_PRODUCTION_YOYOO_REDIRECT_URI is required}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aicard
+      POSTGRES_USER: aicard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aicard -d aicard"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+
+  migrate:
+    image: ${AICARD_IMAGE:?AICARD_IMAGE is required}
+    restart: "no"
+    command: ["npm", "run", "db:migrate"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [private]
+
+  register-yoyoo:
+    image: ${AICARD_IMAGE:?AICARD_IMAGE is required}
+    restart: "no"
+    command: ["npm", "run", "platform:register", "--", "infra/production/yoyoo.client.json"]
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [private]
+
+  app:
+    image: ${AICARD_IMAGE:?AICARD_IMAGE is required}
+    restart: unless-stopped
+    environment: *app-environment
+    ports:
+      - "127.0.0.1:${AICARD_APP_PORT:-4174}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      register-yoyoo:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    networks: [private, public]
+
+networks:
+  private:
+    internal: true
+  public:
+
+volumes:
+  postgres_data:
+    name: ${AICARD_POSTGRES_VOLUME:-aicard-public_postgres_data}

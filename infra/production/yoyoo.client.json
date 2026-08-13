@@ -1,0 +1,15 @@
+{
+  "clientId": "yoyoo_prod",
+  "displayName": "Yoyoo",
+  "audience": "yoyoo",
+  "redirectUris": [
+    "https://app.yoyooai.com/auth/aicard/callback"
+  ],
+  "scopes": [
+    "card.basic",
+    "card.handle",
+    "card.id",
+    "offline_access",
+    "agent.runtime"
+  ]
+}

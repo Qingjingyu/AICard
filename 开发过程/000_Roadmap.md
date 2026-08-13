@@ -8,7 +8,7 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 
 版本：v0.2
 
-当前阶段：Phase 8D - 旗下产品受控登记与生产只读体检已实现并通过本地全量门禁；生产切换、独立安全审查和部署未完成
+当前阶段：Phase 8E - 独立生产发布基础已实现并通过本地容器演练；生产切换、独立安全审查和公网验收未完成
 
 首个接入平台：Yoyoo
 
@@ -47,6 +47,7 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 | 8B | 产品入口统一注册、一次性授权结果与第二产品复用验收 | Completed (Local Self-Tested) |
 | 8C | Yoyoo 停止本地发卡、历史身份映射与生产权威切换 | Implemented + Cross-Repo Self-Tested; Production Cutover Pending |
 | 8D | 旗下产品受控登记、配置防漂移与生产只读体检 | Completed (Local Self-Tested) |
+| 8E | 独立镜像、数据库、正式客户端、反代、体检与回滚发布包 | Implemented + Local Release Rehearsal; Production Pending |
 | 7 | 安全加固、恢复演练和 v0.1 交接 | Pending |
 
 Phase 3-6B3 的“Completed”表示实现、隔离 PostgreSQL、Chrome 虚拟认证器、协议测试 Agent，以及桌面/移动端自动化自测完成。Phase 8A 表示权威发号与密码账号门禁通过；Phase 8B 表示独立参考产品经公共 HTTP 接口完成创建/登录、授权、回调、本地映射、重复恢复和第二产品同卡验收。Phase 8C 表示 Yoyoo 已停止新的本地发卡、消费权威 `card_id` 与 pairwise Subject、建立可撤销联邦会话，并通过隔离双数据库、两次独立浏览器会话及 YOS `AI_100002` 认领、授权、运行令牌、精确房间 ID 发消息的跨仓自测；不表示已上线。Phase 8D 是已通过本地全量门禁的内部产品登记和只读生产体检，不是公共动态客户端注册，也不表示已部署。Phase 6B2 另在本机使用全新人类与 Agent Card 完成 AI Card、Yoyoo 和真实外部 YOS 的冷启动端到端验收，但仍不等同于第三方独立审查。项目尚未经过独立安全验收、真实硬件 Passkey 人工验收或生产部署；账号找回、密码变更和生产级密钥管理未实现，公网部署保持关闭。

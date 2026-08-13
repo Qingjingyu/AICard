@@ -11,17 +11,18 @@ const validEnvironment = {
   WEBAUTHN_RP_NAME: 'AI Card',
   WEBAUTHN_RP_ID: 'id.yoyooai.com',
   WEBAUTHN_ORIGIN: 'https://id.yoyooai.com',
+  AICARD_PRODUCTION_YOYOO_CLIENT_ID: 'yoyoo_prod',
   AICARD_PRODUCTION_YOYOO_REDIRECT_URI: 'https://app.yoyooai.com/auth/aicard/callback',
 };
 
 const validDatabase = {
-  migrations: Array.from({ length: 13 }, (_, index) => `${String(index + 1).padStart(4, '0')}_migration.sql`),
+  migrations: Array.from({ length: 14 }, (_, index) => `${String(index + 1).padStart(4, '0')}_migration.sql`),
   clients: [{
-    clientId: 'yoyoo_dev',
+    clientId: 'yoyoo_prod',
     audience: 'yoyoo',
     status: 'active',
     redirectUris: ['https://app.yoyooai.com/auth/aicard/callback'],
-    scopes: ['card.basic', 'card.handle', 'card.id', 'offline_access'],
+    scopes: ['card.basic', 'card.handle', 'card.id', 'offline_access', 'agent.runtime'],
   }],
 };
 
@@ -66,6 +67,32 @@ describe('AI Card production doctor', () => {
 
     expect(JSON.stringify(report)).not.toContain('super-secret');
     expect(JSON.stringify(report)).not.toContain(validEnvironment.DATABASE_URL);
+  });
+
+  it('fails when only the local-development Yoyoo client is registered', () => {
+    const report = inspectProductionReadiness(validEnvironment, {
+      ...validDatabase,
+      clients: [{
+        ...validDatabase.clients[0],
+        clientId: 'yoyoo_dev',
+      }],
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.checks.find((check) => check.id === 'yoyoo.client')?.status).toBe('fail');
+  });
+
+  it('fails when the production client cannot issue Agent runtime sessions', () => {
+    const report = inspectProductionReadiness(validEnvironment, {
+      ...validDatabase,
+      clients: [{
+        ...validDatabase.clients[0],
+        scopes: ['card.basic', 'card.handle', 'card.id', 'offline_access'],
+      }],
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.checks.find((check) => check.id === 'yoyoo.scopes')?.status).toBe('fail');
   });
 
   it('runs from a repository path containing Chinese characters and fails closed', () => {

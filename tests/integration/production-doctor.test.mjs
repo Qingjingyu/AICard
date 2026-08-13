@@ -9,5 +9,6 @@ it('reads the authoritative migration and product-client ledgers', async () => {
   const snapshot = await readDatabaseSnapshot(databaseUrl);
 
   expect(snapshot.migrations).toContain('0013_aicard_web_registration_client.sql');
+  expect(snapshot.migrations).toContain('0014_shared_resource_audiences.sql');
   expect(snapshot.clients).toContainEqual(expect.objectContaining({ clientId: 'yoyoo_dev' }));
 });

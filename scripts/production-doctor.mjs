@@ -2,8 +2,8 @@ import pg from 'pg';
 import { fileURLToPath } from 'node:url';
 
 const { Client } = pg;
-const requiredScopes = ['card.basic', 'card.handle', 'card.id', 'offline_access'];
-const requiredMigrationCount = 13;
+const requiredScopes = ['card.basic', 'card.handle', 'card.id', 'offline_access', 'agent.runtime'];
+const requiredMigrationCount = 14;
 
 function check(id, condition, message) {
   return { id, status: condition ? 'pass' : 'fail', message };
@@ -18,8 +18,9 @@ function isHttps(value) {
 }
 
 export function inspectProductionReadiness(environment, database) {
+  const yoyooClientId = environment.AICARD_PRODUCTION_YOYOO_CLIENT_ID ?? '';
   const yoyooRedirect = environment.AICARD_PRODUCTION_YOYOO_REDIRECT_URI ?? '';
-  const yoyooClient = database.clients.find((client) => client.clientId === 'yoyoo_dev');
+  const yoyooClient = database.clients.find((client) => client.clientId === yoyooClientId);
   const expectedHost = (() => {
     try {
       return new URL(environment.APP_ORIGIN ?? '').hostname;
@@ -44,6 +45,11 @@ export function inspectProductionReadiness(environment, database) {
       'database.configured',
       /^postgres(?:ql)?:\/\//.test(environment.DATABASE_URL ?? ''),
       'A PostgreSQL production database is configured',
+    ),
+    check(
+      'yoyoo.client_id',
+      /^[a-z][a-z0-9_-]{2,63}$/.test(yoyooClientId) && yoyooClientId !== 'yoyoo_dev',
+      'A dedicated non-development Yoyoo client ID is configured',
     ),
     check(
       'yoyoo.redirect_https',
@@ -117,7 +123,7 @@ async function main() {
     migrations: [],
     clients: [],
   });
-  const configurationChecks = configurationReport.checks.slice(0, 4);
+  const configurationChecks = configurationReport.checks.slice(0, 5);
   if (configurationChecks.some((item) => item.status === 'fail')) {
     const report = { ok: false, checks: configurationChecks };
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

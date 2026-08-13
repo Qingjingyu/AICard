@@ -98,4 +98,12 @@ describe('operator-controlled platform client registration', () => {
     await expect(service.register(local, { allowInsecureLocalhost: true }))
       .resolves.toMatchObject({ created: true });
   });
+
+  it('allows separate clients to target the same resource audience', async () => {
+    const first = { ...input('shared_a'), audience: 'shared-resource' };
+    const second = { ...input('shared_b'), audience: 'shared-resource' };
+
+    await expect(service.register(first)).resolves.toMatchObject({ created: true });
+    await expect(service.register(second)).resolves.toMatchObject({ created: true });
+  });
 });
