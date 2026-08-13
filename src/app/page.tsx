@@ -2,8 +2,9 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
-import { PasskeyGateway } from '@/components/auth/passkey-gateway';
-import { normalizeAuthReturnTo } from '@/lib/auth-return-to';
+import { AccountGateway } from '@/components/auth/account-gateway';
+import { normalizeAuthReturnTo, parseAuthorizationReturnTo } from '@/lib/auth-return-to';
+import { getPlatformAuthorizationService } from '@/server/authorization/authorization';
 import { getAuthenticationService } from '@/server/authentication/authentication';
 import { SESSION_COOKIE } from '@/server/authentication/http-auth';
 
@@ -54,6 +55,12 @@ export default async function Home({
   const query = await searchParams;
   const requestedState = query.state;
   const returnTo = normalizeAuthReturnTo(query.return_to);
+  const authorizationReturn = parseAuthorizationReturnTo(query.return_to);
+  let registrationClientId = 'aicard_web';
+  if (authorizationReturn) {
+    const validated = await getPlatformAuthorizationService().validateRequest(authorizationReturn);
+    registrationClientId = validated.client.clientId;
+  }
   const state = normalizeState(requestedState);
   const current = content[state];
 
@@ -110,7 +117,7 @@ export default async function Home({
             查看工程状态
           </Link>
         ) : null}
-      </section> : <PasskeyGateway returnTo={returnTo} />}
+      </section> : <AccountGateway returnTo={returnTo} registrationClientId={registrationClientId} />}
 
       <footer className="foundation-footer">
         <p>AI CARD SYSTEM</p>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildAuthorizationReturnTo,
+  parseAuthorizationReturnTo,
   normalizeAuthReturnTo,
 } from '../../src/lib/auth-return-to';
 
@@ -22,6 +23,11 @@ describe('authentication return target', () => {
       '/authorize?response_type=code&client_id=yoyoo_dev&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fauth%2Faicard%2Fcallback&scope=card.basic+card.handle+offline_access&state=state_1234567890&code_challenge=challenge_1234567890&code_challenge_method=S256&principal_type=ai',
     );
     expect(normalizeAuthReturnTo(target)).toBe(target);
+    expect(parseAuthorizationReturnTo(target)).toMatchObject({
+      clientId: 'yoyoo_dev',
+      redirectUri: 'http://localhost:4173/auth/aicard/callback',
+      principalType: 'ai',
+    });
   });
 
   it.each([
@@ -34,5 +40,6 @@ describe('authentication return target', () => {
     undefined,
   ])('falls back for an unsafe return target: %j', (target) => {
     expect(normalizeAuthReturnTo(target)).toBe('/me/card');
+    expect(parseAuthorizationReturnTo(target)).toBeNull();
   });
 });
