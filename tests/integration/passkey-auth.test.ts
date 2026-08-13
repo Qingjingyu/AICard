@@ -9,6 +9,7 @@ import {
   type WebAuthnAdapter,
 } from '@/server/authentication/authentication-service';
 import { AuthenticationStateError } from '@/server/authentication/errors';
+import { PasswordAuthenticationService } from '@/server/authentication/password-authentication-service';
 import { PostgresAuthenticationRepository } from '@/server/postgres/authentication-repository';
 import { createPostgresPool } from '@/server/postgres/pool';
 
@@ -62,6 +63,7 @@ const service = new AuthenticationService(repository, adapter, {
   rpId: 'localhost',
   origin: 'http://localhost:3000',
 });
+const passwordService = new PasswordAuthenticationService(repository);
 
 beforeAll(async () => {
   await runMigrations(pool, resolve('infra/postgres/migrations'));
@@ -92,6 +94,30 @@ async function register(credentialId = 'credential_one') {
 }
 
 describe('Passkey authentication service', () => {
+  it('adds the first optional Passkey to an account originally created with a password', async () => {
+    const passwordAccount = await passwordService.register({
+      clientId: 'test_client',
+      idempotencyKey: 'passkey-upgrade-test-key-00000001',
+      displayName: '密码用户',
+      handle: 'password_then_passkey',
+      password: 'correct horse 电池 staple',
+    });
+
+    const additional = await service.beginAdditionalCredential(passwordAccount.card.principalId);
+    await service.finishRegistration({
+      challengeId: additional.challengeId,
+      currentPrincipalId: passwordAccount.card.principalId,
+      response: {
+        id: 'credential_after_password',
+        challenge: (additional.options as { challenge: string }).challenge,
+      },
+    });
+
+    expect(await service.listCredentials(passwordAccount.card.principalId)).toEqual([
+      expect.objectContaining({ credentialId: 'credential_after_password', revokedAt: null }),
+    ]);
+  });
+
   it('creates a human Card, credential, and hashed session in one registration flow', async () => {
     const result = await register();
 

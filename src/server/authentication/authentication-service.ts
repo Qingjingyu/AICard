@@ -109,11 +109,14 @@ export class AuthenticationService {
 
   async beginAdditionalCredential(principalId: string) {
     const parsedPrincipalId = principalIdSchema.parse(principalId);
-    const [profile, credentials] = await Promise.all([
+    const [existingProfile, credentials] = await Promise.all([
       this.repository.findAuthProfile(parsedPrincipalId),
       this.repository.listCredentials(parsedPrincipalId),
     ]);
-    if (!profile) throw new AuthenticationStateError('Authentication profile was not found');
+    const profile = existingProfile ?? await this.repository.ensureAuthProfile(
+      parsedPrincipalId,
+      createOpaqueToken(),
+    );
     const options = await this.webauthn.generateRegistrationOptions({
       rpName: this.config.rpName,
       rpId: this.config.rpId,

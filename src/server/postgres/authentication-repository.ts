@@ -1,8 +1,15 @@
 import type { Pool, PoolClient } from 'pg';
 
-import { createCardId, createPrincipalId } from '@/domain/identity/ids';
+import { createPrincipalId } from '@/domain/identity/ids';
 import type { IdentityRecord } from '@/domain/identity/types';
-import { AuthenticationStateError } from '@/server/authentication/errors';
+import {
+  AuthenticationStateError,
+  AuthenticationVerificationError,
+} from '@/server/authentication/errors';
+import {
+  type PasswordCredential,
+  verifyPassword,
+} from '@/server/authentication/password-security';
 
 export type ChallengePurpose = 'registration' | 'authentication';
 
@@ -67,6 +74,41 @@ type CredentialRow = {
   last_used_at: Date | null;
   revoked_at: Date | null;
 };
+
+type IdentityRow = {
+  principal_id: string;
+  principal_type: 'human' | 'ai';
+  card_id: string;
+  handle: string;
+  display_name: string;
+  avatar_url: string | null;
+  bio: string | null;
+  status: 'active' | 'suspended' | 'retired';
+  created_at: Date;
+  updated_at: Date;
+};
+
+type PasswordAccountRow = IdentityRow & {
+  password_hash: Buffer;
+  password_salt: Buffer;
+  password_algorithm: 'scrypt-v1';
+  credential_status: 'active' | 'disabled';
+};
+
+function mapIdentity(row: IdentityRow): IdentityRecord {
+  return {
+    principalId: row.principal_id,
+    principalType: row.principal_type,
+    cardId: row.card_id,
+    handle: row.handle,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    bio: row.bio,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 function mapCredential(row: CredentialRow): StoredCredential {
   return {
@@ -290,6 +332,226 @@ export class PostgresAuthenticationRepository {
     };
   }
 
+  async registerPasswordAccount(input: {
+    clientId: string;
+    idempotencyKeyHash: Buffer;
+    requestFingerprint: Buffer;
+    displayName: string;
+    handle: string;
+    password: string;
+    credential: PasswordCredential;
+    sessionHash: Buffer;
+    sessionExpiresAt: Date;
+    verifiedAt: Date;
+    requestId?: string;
+  }): Promise<{ card: IdentityRecord; replayed: boolean }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        `${input.clientId}:${input.idempotencyKeyHash.toString('hex')}`,
+      ]);
+      const platform = await client.query(
+        "select 1 from platform_clients where client_id = $1 and status = 'active'",
+        [input.clientId],
+      );
+      if (platform.rowCount !== 1) throw new AuthenticationStateError('Registration client is not active');
+
+      const existing = await client.query<{
+        principal_id: string;
+        request_fingerprint: Buffer;
+        password_hash: Buffer;
+        password_salt: Buffer;
+        password_algorithm: 'scrypt-v1';
+        credential_status: 'active' | 'disabled';
+      }>(
+        `select r.principal_id, r.request_fingerprint, p.password_hash, p.password_salt,
+           p.password_algorithm, p.status as credential_status
+         from account_registration_requests r
+         join human_password_credentials p on p.principal_id = r.principal_id
+         where client_id = $1 and idempotency_key_hash = $2`,
+        [input.clientId, input.idempotencyKeyHash],
+      );
+      if (existing.rows[0]) {
+        if (!existing.rows[0].request_fingerprint.equals(input.requestFingerprint)) {
+          throw new AuthenticationStateError('Idempotency key was already used for another request');
+        }
+        const passwordMatches = await verifyPassword(input.password, {
+          hash: existing.rows[0].password_hash,
+          salt: existing.rows[0].password_salt,
+          algorithm: existing.rows[0].password_algorithm,
+        });
+        if (!passwordMatches || existing.rows[0].credential_status !== 'active') {
+          throw new AuthenticationVerificationError('Account or password is invalid');
+        }
+        const card = await this.findIdentityByPrincipalId(existing.rows[0].principal_id, client);
+        if (!card) throw new AuthenticationStateError('Idempotent registration identity was not found');
+        await client.query(
+          `insert into auth_sessions (session_hash, principal_id, expires_at, verified_at)
+           values ($1, $2, $3, $4)`,
+          [input.sessionHash, card.principalId, input.sessionExpiresAt, input.verifiedAt],
+        );
+        await client.query('commit');
+        return { card, replayed: true };
+      }
+
+      const principalId = createPrincipalId();
+      await client.query(
+        'insert into principals (principal_id, principal_type) values ($1, $2)',
+        [principalId, 'human'],
+      );
+      const cardResult = await client.query<{
+        card_id: string;
+        created_at: Date;
+        updated_at: Date;
+      }>(
+        `insert into ai_cards (principal_id, display_name)
+         values ($1, $2)
+         returning card_id, created_at, updated_at`,
+        [principalId, input.displayName],
+      );
+      const cardRow = cardResult.rows[0];
+      if (!cardRow) throw new AuthenticationStateError('Registration did not return Card data');
+      await client.query(
+        'insert into card_handles (handle, card_id) values ($1, $2)',
+        [input.handle, cardRow.card_id],
+      );
+      await client.query(
+        `insert into human_password_credentials (
+           principal_id, password_hash, password_salt, password_algorithm
+         ) values ($1, $2, $3, $4)`,
+        [principalId, input.credential.hash, input.credential.salt, input.credential.algorithm],
+      );
+      await client.query(
+        `insert into account_registration_requests (
+           client_id, idempotency_key_hash, request_fingerprint, principal_id
+         ) values ($1, $2, $3, $4)`,
+        [input.clientId, input.idempotencyKeyHash, input.requestFingerprint, principalId],
+      );
+      await client.query(
+        `insert into auth_sessions (session_hash, principal_id, expires_at, verified_at)
+         values ($1, $2, $3, $4)`,
+        [input.sessionHash, principalId, input.sessionExpiresAt, input.verifiedAt],
+      );
+      await insertAuditEvent(client, {
+        eventType: 'password.registered',
+        principalId,
+        targetType: 'credential',
+        result: 'succeeded',
+        requestId: input.requestId,
+      });
+      await client.query('commit');
+      return {
+        replayed: false,
+        card: {
+          principalId,
+          principalType: 'human',
+          cardId: cardRow.card_id,
+          handle: input.handle,
+          displayName: input.displayName,
+          avatarUrl: null,
+          bio: null,
+          status: 'active',
+          createdAt: cardRow.created_at,
+          updatedAt: cardRow.updated_at,
+        },
+      };
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async findPasswordAccount(identifier: { cardId?: string; handle?: string }): Promise<{
+    card: IdentityRecord;
+    credential: PasswordCredential;
+    credentialStatus: 'active' | 'disabled';
+  } | null> {
+    const result = await this.pool.query<PasswordAccountRow>(
+      `select p.principal_id, p.principal_type, c.card_id, h.handle, c.display_name,
+         c.avatar_url, c.bio, c.status, c.created_at, c.updated_at,
+         pc.password_hash, pc.password_salt, pc.password_algorithm,
+         pc.status as credential_status
+       from principals p
+       join ai_cards c on c.principal_id = p.principal_id
+       join card_handles h on h.card_id = c.card_id and h.is_current
+       join human_password_credentials pc on pc.principal_id = p.principal_id
+       where ($1::text is not null and c.card_id = $1)
+          or ($2::text is not null and h.handle = $2)`,
+      [identifier.cardId ?? null, identifier.handle ?? null],
+    );
+    const row = result.rows[0];
+    return row ? {
+      card: mapIdentity(row),
+      credential: {
+        hash: row.password_hash,
+        salt: row.password_salt,
+        algorithm: row.password_algorithm,
+      },
+      credentialStatus: row.credential_status,
+    } : null;
+  }
+
+  async createPasswordSession(input: {
+    principalId: string;
+    sessionHash: Buffer;
+    previousSessionHash?: Buffer;
+    expiresAt: Date;
+    verifiedAt: Date;
+    requestId?: string;
+  }): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      if (input.previousSessionHash) {
+        await client.query(
+          'update auth_sessions set revoked_at = coalesce(revoked_at, now()) where session_hash = $1',
+          [input.previousSessionHash],
+        );
+      }
+      await client.query(
+        `insert into auth_sessions (session_hash, principal_id, expires_at, verified_at)
+         values ($1, $2, $3, $4)`,
+        [input.sessionHash, input.principalId, input.expiresAt, input.verifiedAt],
+      );
+      await insertAuditEvent(client, {
+        eventType: 'password.authenticated',
+        principalId: input.principalId,
+        targetType: 'credential',
+        result: 'succeeded',
+        requestId: input.requestId,
+      });
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async recordPasswordLoginFailure(principalId?: string, requestId?: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await insertAuditEvent(client, {
+        eventType: 'password.authentication_failed',
+        principalId: principalId ?? null,
+        targetType: 'credential',
+        result: 'failed',
+        requestId,
+      });
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async completeInitialRegistration(input: {
     displayName: string;
     handle: string;
@@ -302,7 +564,6 @@ export class PostgresAuthenticationRepository {
   }): Promise<IdentityRecord> {
     const client = await this.pool.connect();
     const principalId = createPrincipalId();
-    const cardId = createCardId();
 
     try {
       await client.query('begin');
@@ -310,15 +571,21 @@ export class PostgresAuthenticationRepository {
         'insert into principals (principal_id, principal_type) values ($1, $2)',
         [principalId, 'human'],
       );
-      const cardResult = await client.query<{ created_at: Date; updated_at: Date }>(
-        `insert into ai_cards (card_id, principal_id, display_name)
-         values ($1, $2, $3)
-         returning created_at, updated_at`,
-        [cardId, principalId, input.displayName],
+      const cardResult = await client.query<{
+        card_id: string;
+        created_at: Date;
+        updated_at: Date;
+      }>(
+        `insert into ai_cards (principal_id, display_name)
+         values ($1, $2)
+         returning card_id, created_at, updated_at`,
+        [principalId, input.displayName],
       );
+      const card = cardResult.rows[0];
+      if (!card) throw new AuthenticationStateError('Registration did not return Card data');
       await client.query(
         'insert into card_handles (handle, card_id) values ($1, $2)',
-        [input.handle, cardId],
+        [input.handle, card.card_id],
       );
       await client.query(
         'insert into principal_auth_profiles (principal_id, webauthn_user_id) values ($1, $2)',
@@ -339,19 +606,17 @@ export class PostgresAuthenticationRepository {
         requestId: input.requestId,
       });
       await client.query('commit');
-      const timestamps = cardResult.rows[0];
-      if (!timestamps) throw new AuthenticationStateError('Registration did not return Card data');
       return {
         principalId,
         principalType: 'human',
-        cardId,
+        cardId: card.card_id,
         handle: input.handle,
         displayName: input.displayName,
         avatarUrl: null,
         bio: null,
         status: 'active',
-        createdAt: timestamps.created_at,
-        updatedAt: timestamps.updated_at,
+        createdAt: card.created_at,
+        updatedAt: card.updated_at,
       };
     } catch (error) {
       await client.query('rollback');
@@ -369,19 +634,25 @@ export class PostgresAuthenticationRepository {
     return result.rows[0] ? { webauthnUserId: result.rows[0].webauthn_user_id } : null;
   }
 
-  async findIdentityByPrincipalId(principalId: string): Promise<IdentityRecord | null> {
-    const result = await this.pool.query<{
-      principal_id: string;
-      principal_type: 'human' | 'ai';
-      card_id: string;
-      handle: string;
-      display_name: string;
-      avatar_url: string | null;
-      bio: string | null;
-      status: 'active' | 'suspended' | 'retired';
-      created_at: Date;
-      updated_at: Date;
-    }>(
+  async ensureAuthProfile(principalId: string, webauthnUserId: string): Promise<{ webauthnUserId: string }> {
+    const result = await this.pool.query<{ webauthn_user_id: string }>(
+      `insert into principal_auth_profiles (principal_id, webauthn_user_id)
+       values ($1, $2)
+       on conflict (principal_id) do update
+         set webauthn_user_id = principal_auth_profiles.webauthn_user_id
+       returning webauthn_user_id`,
+      [principalId, webauthnUserId],
+    );
+    const profile = result.rows[0];
+    if (!profile) throw new AuthenticationStateError('Authentication profile was not returned');
+    return { webauthnUserId: profile.webauthn_user_id };
+  }
+
+  async findIdentityByPrincipalId(
+    principalId: string,
+    connection: Pick<Pool, 'query'> | Pick<PoolClient, 'query'> = this.pool,
+  ): Promise<IdentityRecord | null> {
+    const result = await connection.query<IdentityRow>(
       `select p.principal_id, p.principal_type, c.card_id, h.handle, c.display_name,
          c.avatar_url, c.bio, c.status, c.created_at, c.updated_at
        from principals p
@@ -391,18 +662,7 @@ export class PostgresAuthenticationRepository {
       [principalId],
     );
     const row = result.rows[0];
-    return row ? {
-      principalId: row.principal_id,
-      principalType: row.principal_type,
-      cardId: row.card_id,
-      handle: row.handle,
-      displayName: row.display_name,
-      avatarUrl: row.avatar_url,
-      bio: row.bio,
-      status: row.status,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    } : null;
+    return row ? mapIdentity(row) : null;
   }
 
   async findActiveCredential(credentialId: string): Promise<StoredCredential | null> {
