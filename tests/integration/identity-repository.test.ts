@@ -29,6 +29,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await pool.query('delete from principals');
+  await pool.query("select setval('ai_card_public_id_sequence', 100001, false)");
 });
 
 afterAll(async () => {
@@ -44,7 +45,7 @@ describe('PostgreSQL identity repository', () => {
     });
 
     expect(card.displayName).toBe('苏白');
-    expect(card.cardId).toMatch(/^aic_/);
+    expect(card.cardId).toBe('AI_100001');
     expect(card.principalId).toMatch(/-7[0-9a-f]{3}-/);
     expect(card.cardId).not.toContain(card.principalId);
     expect(await service.getPublicCard(card.cardId)).toMatchObject({
@@ -52,6 +53,79 @@ describe('PostgreSQL identity repository', () => {
       display_name: '苏白',
       principal_type: 'human',
     });
+  });
+
+  it('allocates one shared monotonic sequence to humans and AI under concurrency', async () => {
+    const controller = await service.createCard({
+      principalType: 'human',
+      displayName: '控制者',
+      handle: uniqueHandle('sequence_controller'),
+    });
+    const cards = await Promise.all([
+      service.createCard({
+        principalType: 'human',
+        displayName: '第二个人类',
+        handle: uniqueHandle('sequence_human'),
+      }),
+      service.createCard({
+        principalType: 'ai',
+        displayName: '第一个 AI',
+        handle: uniqueHandle('sequence_ai_one'),
+        controllerPrincipalId: controller.principalId,
+      }),
+      service.createCard({
+        principalType: 'ai',
+        displayName: '第二个 AI',
+        handle: uniqueHandle('sequence_ai_two'),
+        controllerPrincipalId: controller.principalId,
+      }),
+    ]);
+
+    expect(controller.cardId).toBe('AI_100001');
+    expect(new Set(cards.map((card) => card.cardId))).toEqual(new Set([
+      'AI_100002',
+      'AI_100003',
+      'AI_100004',
+    ]));
+  });
+
+  it('rejects caller-selected or mutated public Card IDs', async () => {
+    const principal = await service.createCard({
+      principalType: 'human',
+      displayName: '权威编号测试',
+      handle: uniqueHandle('issuer_only'),
+    });
+
+    await expect(pool.query(
+      'update ai_cards set card_id = $1 where card_id = $2',
+      ['AI_777777', principal.cardId],
+    )).rejects.toThrow();
+
+    const directPrincipalId = '018f4f5d-8f6a-7a13-8e2c-1f21f3489a99';
+    await pool.query(
+      'insert into principals (principal_id, principal_type) values ($1, $2)',
+      [directPrincipalId, 'human'],
+    );
+    await expect(pool.query(
+      `insert into ai_cards (card_id, principal_id, display_name)
+       values ($1, $2, $3)`,
+      ['AI_777777', directPrincipalId, '伪造编号'],
+    )).rejects.toThrow();
+  });
+
+  it('resolves a migrated legacy ID as a read-only alias to the permanent Card', async () => {
+    const card = await service.createCard({
+      principalType: 'human',
+      displayName: '旧链接兼容',
+      handle: uniqueHandle('legacy_alias'),
+    });
+    const legacyId = 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VW';
+    await pool.query(
+      'insert into ai_card_id_aliases (old_card_id, card_id) values ($1, $2)',
+      [legacyId, card.cardId],
+    );
+
+    expect(await service.getPublicCard(legacyId)).toMatchObject({ card_id: card.cardId });
   });
 
   it('reserves current and historical handles case-insensitively', async () => {

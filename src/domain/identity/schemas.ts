@@ -16,9 +16,16 @@ export const handleSchema = z.string()
   .pipe(z.string().regex(/^[a-z][a-z0-9_]{2,31}$/, 'handle has an invalid format'));
 
 export const cardIdSchema = z.string().regex(
-  /^aic_[0-9A-HJKMNP-TV-Z]{26}$/,
+  /^AI_[1-9][0-9]{5,}$/,
   'card_id has an invalid format',
 );
+
+export const legacyCardIdSchema = z.string().regex(
+  /^aic_[0-9A-HJKMNP-TV-Z]{26}$/,
+  'legacy card_id has an invalid format',
+);
+
+export const publicCardLookupSchema = z.union([cardIdSchema, legacyCardIdSchema]);
 
 export const principalIdSchema = z.string().regex(
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,

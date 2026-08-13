@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 
-import { createCardId, createPairwiseSubject, createPrincipalId } from '@/domain/identity/ids';
+import { createPairwiseSubject, createPrincipalId } from '@/domain/identity/ids';
 import type {
   CardStatus,
   ControllerSummary,
@@ -97,7 +97,6 @@ export class PostgresIdentityRepository {
   async createIdentity(input: CreateIdentityRecord): Promise<IdentityRecord> {
     const client = await this.pool.connect();
     const principalId = createPrincipalId();
-    const cardId = createCardId();
 
     try {
       await client.query('begin');
@@ -112,16 +111,22 @@ export class PostgresIdentityRepository {
         'insert into principals (principal_id, principal_type) values ($1, $2)',
         [principalId, input.principalType],
       );
-      const cardResult = await client.query<{ created_at: Date; updated_at: Date }>(
+      const cardResult = await client.query<{
+        card_id: string;
+        created_at: Date;
+        updated_at: Date;
+      }>(
         `insert into ai_cards
-          (card_id, principal_id, display_name, avatar_url, bio)
-         values ($1, $2, $3, $4, $5)
-         returning created_at, updated_at`,
-        [cardId, principalId, input.displayName, input.avatarUrl ?? null, input.bio ?? null],
+          (principal_id, display_name, avatar_url, bio)
+         values ($1, $2, $3, $4)
+         returning card_id, created_at, updated_at`,
+        [principalId, input.displayName, input.avatarUrl ?? null, input.bio ?? null],
       );
+      const card = cardResult.rows[0];
+      if (!card) throw new Error('AI Card insert did not return identity data');
       await client.query(
         'insert into card_handles (handle, card_id) values ($1, $2)',
-        [input.handle, cardId],
+        [input.handle, card.card_id],
       );
 
       if (input.principalType === 'ai' && input.controllerPrincipalId) {
@@ -134,20 +139,17 @@ export class PostgresIdentityRepository {
       }
 
       await client.query('commit');
-      const timestamps = cardResult.rows[0];
-      if (!timestamps) throw new Error('AI Card insert did not return timestamps');
-
       return {
         principalId,
         principalType: input.principalType,
-        cardId,
+        cardId: card.card_id,
         handle: input.handle,
         displayName: input.displayName,
         avatarUrl: input.avatarUrl ?? null,
         bio: input.bio ?? null,
         status: 'active',
-        createdAt: timestamps.created_at,
-        updatedAt: timestamps.updated_at,
+        createdAt: card.created_at,
+        updatedAt: card.updated_at,
       };
     } catch (error) {
       await client.query('rollback');
@@ -183,7 +185,11 @@ export class PostgresIdentityRepository {
 
   async findByCardId(cardId: string): Promise<IdentityRecord | null> {
     const result = await this.pool.query<IdentityRow>(
-      `${identitySelect} where c.card_id = $1`,
+      `${identitySelect}
+       where c.card_id = coalesce(
+         (select alias.card_id from ai_card_id_aliases alias where alias.old_card_id = $1),
+         $1
+       )`,
       [cardId],
     );
     return result.rows[0] ? mapIdentity(result.rows[0]) : null;
