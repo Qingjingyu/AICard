@@ -36,25 +36,14 @@ test.afterAll(async () => {
 });
 
 async function createSignedInCard(page: import('@playwright/test').Page, suffix: string) {
-  const client = await page.context().newCDPSession(page);
-  await client.send('WebAuthn.enable');
-  await client.send('WebAuthn.addVirtualAuthenticator', {
-    options: {
-      protocol: 'ctap2',
-      transport: 'internal',
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
   const handle = `consent_${suffix}_${Date.now().toString(36)}`;
   createdHandle = handle;
   cleanupHandles.push(handle);
   await page.goto('/');
   await page.getByLabel('昵称').fill('平台授权测试');
   await page.getByLabel('@Handle').fill(handle);
-  await page.getByRole('button', { name: '使用 Passkey 创建' }).click();
+  await page.getByLabel('密码').fill('correct horse 电池 staple');
+  await page.getByRole('button', { name: '创建 AI Card', exact: true }).last().click();
   await expect(page).toHaveURL(/\/me\/card$/);
 }
 

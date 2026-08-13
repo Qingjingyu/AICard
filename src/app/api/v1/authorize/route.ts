@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { publicCardLookupSchema } from '@/domain/identity/schemas';
 import { getPlatformAuthorizationService } from '@/server/authorization/authorization';
 import { authorizationErrorResponse, authorizationJson } from '@/server/authorization/authorization-route';
 import { enforceRateLimit, requestId, requireRequestSession } from '@/server/authentication/auth-route';
@@ -13,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 const consentSchema = z.object({
   decision: z.enum(['approve', 'deny']),
-  subjectCardId: z.string().regex(/^aic_[0-9A-HJKMNP-TV-Z]{26}$/).optional(),
+  subjectCardId: publicCardLookupSchema.optional(),
   request: z.object({
     responseType: z.string(),
     clientId: z.string(),

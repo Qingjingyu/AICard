@@ -23,7 +23,7 @@ describe('platform consent identity selection', () => {
         scopes={['card.basic', 'card.handle', 'agent.runtime']}
         subjectOptions={[{
           principalId: '019c0000-0000-7000-8000-000000000001',
-          cardId: 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VW',
+          cardId: 'AI_100001',
           displayName: '悠悠助理',
           handle: 'yoyoo_assistant',
         }]}
