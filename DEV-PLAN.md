@@ -61,6 +61,23 @@ AI Card 作为独立身份中心开发，Yoyoo 是第一个平台客户端。v0.
 - `AI_100001` 可登录并看到原工作空间；现有历史内容的作者与归属不变。
 - 本地、集成、E2E、生产健康检查和公网真实登录全部通过后，才声明完成。
 
+### Phase 8D: Controlled Product Onboarding And Production Readiness
+
+#### Deliverables
+
+- 旗下产品通过内部运维 CLI 登记精确 client、audience、callback 和 scope 合同，不开放第三方动态注册。
+- 相同登记请求幂等；既有 client 的配置漂移默认拒绝，禁止静默增加 callback 或 scope。
+- 生产 callback 强制 HTTPS，本地 HTTP 仅在显式开关下允许 `localhost`。
+- 生产只读体检校验 issuer/WebAuthn 配置、migration ledger 和 Yoyoo client 精确合同，失败时以非零状态退出。
+- 更新操作说明、开发记录和路线图，明确区分已实现、本地自测、独立审查和已部署。
+
+#### Verification
+
+- 第一次登记创建一份 client 合同和一条安全审计，原样重试不重复写入。
+- audience、callback 或 scope 任一漂移均显式冲突；非 HTTPS 生产 callback 被拒绝。
+- 生产体检从真实 `aicard_schema_migrations` 和平台客户端表读取，不回显数据库密码。
+- lint、typecheck、build、unit、integration 和 e2e 全部通过后，才将本阶段标记为本地自测完成。
+
 ### V0.2 Explicit Non-Goals
 
 - 不自动合并两个已存在的不同 AI Card，不通过昵称、邮箱或自然语言猜测身份。
