@@ -5,7 +5,7 @@ import { CardBack } from '@/components/card/card-back';
 import { CardFront } from '@/components/card/card-front';
 
 const publicCard = {
-  card_id: 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VW',
+  card_id: 'AI_100001',
   handle: 'yoyoo_assistant',
   display_name: '悠悠',
   principal_type: 'ai' as const,
@@ -28,7 +28,7 @@ describe('AI Card views', () => {
     const html = renderToStaticMarkup(<CardBack card={{
       card: publicCard,
       controllers: [{
-        card_id: 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VX',
+        card_id: 'AI_100002',
         display_name: '苏白',
         handle: 'subai_user',
         verified_at: '2026-08-08T00:00:00.000Z',

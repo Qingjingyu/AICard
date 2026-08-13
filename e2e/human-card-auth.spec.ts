@@ -9,6 +9,7 @@ if (existsSync('.env.local')) loadEnvFile('.env.local');
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required for Passkey E2E tests');
+const e2eOrigin = `http://localhost:${process.env.AICARD_E2E_PORT ?? 4280}`;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -28,7 +29,7 @@ test.afterAll(async () => {
   await pool.end();
 });
 
-test('creates a Card, logs out, and returns through a discoverable Passkey', async ({ page }, testInfo) => {
+test('creates a password Card, adds Passkeys, and returns through the permanent account', async ({ page }, testInfo) => {
   const client = await page.context().newCDPSession(page);
   await client.send('WebAuthn.enable');
   const firstAuthenticator = await client.send('WebAuthn.addVirtualAuthenticator', {
@@ -44,18 +45,20 @@ test('creates a Card, logs out, and returns through a discoverable Passkey', asy
 
   const suffix = `${testInfo.project.name.startsWith('mobile') ? 'm' : 'd'}${Date.now().toString(36)}`;
   const handle = `passkey_${suffix}`;
+  const password = 'correct horse 电池 staple';
   createdHandle = handle;
 
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '你的 AI 时代身份' })).toBeVisible();
   await page.getByLabel('昵称').fill('端到端测试身份');
   await page.getByLabel('@Handle').fill(handle);
-  await page.getByRole('button', { name: '使用 Passkey 创建' }).click();
+  await page.getByLabel('密码').fill(password);
+  await page.getByRole('button', { name: '创建 AI Card', exact: true }).last().click();
 
   await expect(page).toHaveURL(/\/me\/card$/);
   await expect(page.getByRole('article', { name: '端到端测试身份 的私有 Card 背面' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '身份控制' })).toBeVisible();
-  await expect(page.getByText('Passkey 01')).toBeVisible();
+  await expect(page.getByText('没有可用凭据')).toBeVisible();
 
   const pool = createPostgresPool(databaseUrl);
   const principal = await pool.query<{ principal_id: string }>(
@@ -73,6 +76,8 @@ test('creates a Card, logs out, and returns through a discoverable Passkey', asy
   expect(privateResponse.status()).toBe(200);
   expect(JSON.stringify(privateBody)).not.toMatch(/public_key|session_hash|challenge_hash/i);
 
+  await page.getByRole('button', { name: '添加 Passkey' }).click();
+  await expect(page.getByText('Passkey 01')).toBeVisible();
   await client.send('WebAuthn.addVirtualAuthenticator', {
     options: {
       protocol: 'ctap2',
@@ -94,7 +99,9 @@ test('creates a Card, logs out, and returns through a discoverable Passkey', asy
   await page.getByRole('button', { name: '退出' }).click();
   await expect(page).toHaveURL(/\/$/);
   await page.getByRole('button', { name: '登录' }).click();
-  await page.getByRole('button', { name: '使用 Passkey 登录' }).click();
+  await page.getByLabel('AI Card ID 或 @Handle').fill(`@${handle}`);
+  await page.getByLabel('密码').fill(password);
+  await page.getByRole('button', { name: '登录', exact: true }).last().click();
   await expect(page).toHaveURL(/\/me\/card$/);
   await expect(page.getByRole('article', { name: '端到端测试身份 的私有 Card 背面' })).toBeVisible();
 });
@@ -105,7 +112,7 @@ test('rejects state changes without origin and CSRF proof', async ({ request }) 
   expect(await originResponse.json()).toMatchObject({ error: { code: 'AUTHORIZATION_DENIED' } });
 
   const logoutResponse = await request.post('/api/v1/auth/logout', {
-    headers: { origin: 'http://localhost:3000' },
+    headers: { origin: e2eOrigin },
   });
   expect(logoutResponse.status()).toBe(403);
   expect(await logoutResponse.json()).toMatchObject({ error: { code: 'AUTHORIZATION_DENIED' } });

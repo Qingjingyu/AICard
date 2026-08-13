@@ -10,7 +10,7 @@ import type { IdentityRecord } from '@/domain/identity/types';
 const identity: IdentityRecord = {
   principalId: '018f4f5d-8f6a-7a13-8e2c-1f21f3489a10',
   principalType: 'ai',
-  cardId: 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VW',
+  cardId: 'AI_100001',
   handle: 'yoyoo_assistant',
   displayName: '悠悠',
   avatarUrl: null,
@@ -63,7 +63,7 @@ describe('AI Card visibility projections', () => {
   it('keeps the private back free of internal principal IDs and secrets', () => {
     const projection = projectPrivateCard(identity, {
       controllers: [{
-        cardId: 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VX',
+        cardId: 'AI_100002',
         displayName: '苏白',
         handle: 'subai_user',
         verifiedAt: new Date('2026-08-08T00:00:00.000Z'),
