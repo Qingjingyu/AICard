@@ -2,7 +2,7 @@
 
 AI Card 是面向人类与 AI 的独立身份、鉴权和授权基础设施。Yoyoo 是第一个客户端，但不拥有 AI Card 身份。
 
-当前状态：Phase 6B3 已实现并完成本地自动化自测。人类可以使用 Passkey 管理 Card、邀请 AI 节点，并向预注册平台批准、查看或撤销本人及当前受控 AI 的最小身份授权；Yoyoo 可以建立稳定的本地 Agent 映射，节点可以用现有 Ed25519 私钥换取两分钟有效的 Yoyoo 运行时会话。本机已完成全新身份的 AI Card、Yoyoo 与外部 YOS 冷启动端到端验收；真实硬件 Passkey、第三方独立安全审查与生产部署尚未完成，不得用于公网或生产环境。
+当前状态：v0.2 Phase 8A、8B 与 8D 已实现并完成本地自动化自测。首次注册会由 AI Card 原子签发从 `AI_100001` 开始的永久编号；预注册产品可经公共 HTTP 授权接口建立自己的 pairwise Subject、成员映射和短期会话，旗下新产品可由内部运维流程幂等登记。独立参考产品已在桌面和移动端证明同一 Card 跨产品复用且不会生成本地替代身份；Yoyoo Phase 8C 也已通过隔离双数据库和两次独立浏览器会话的跨仓本地验收。生产身份权威切换、真实硬件 Passkey、账号恢复、第三方独立安全审查和生产部署仍未完成，不得用于公网或生产环境。
 
 ## Requirements
 
@@ -31,6 +31,16 @@ curl -i http://localhost:3000/api/health
 - PostgreSQL 可用：HTTP `200`，`status: ok`，`database.status: up`。
 - PostgreSQL 不可用或配置缺失：HTTP `503`，`status: degraded`，不回显内部连接错误。
 
+独立参考产品用于验证公共接入协议，不直接调用 AI Card Repository：
+
+```bash
+AI_CARD_ORIGIN=http://localhost:3000 \
+REFERENCE_PRODUCT_ORIGIN=http://localhost:4174 \
+npm run dev:reference-product
+```
+
+打开 [http://localhost:4174](http://localhost:4174)，可以从产品入口创建或登录 AI Card、审批最小权限并返回产品。默认复用本地开发数据库里的隔离 `reference_product` schema；部署成独立服务时通过 `REFERENCE_PRODUCT_DATABASE_URL` 指向产品自己的 PostgreSQL，并只应用 `0012_reference_product_sessions.sql` 的产品 schema。生产必须使用 HTTPS 和独立 Cookie 域策略。
+
 停止本地服务：
 
 ```bash
@@ -55,7 +65,9 @@ Phase 1 使用查询参数保留四态验收入口：
 Phase 2 提供以下内部能力：
 
 - 人类与 AI 共用 Principal / AI Card 模型，内部 Principal ID 使用 UUIDv7。
-- 永久公开 Card ID 使用 `aic_` 前缀和 128-bit 随机值，不复用昵称或 Handle 作为业务主键。
+- 永久公开 Card ID 由 PostgreSQL 唯一序列权威签发，格式为 `AI_` 加不少于六位数字，从 `AI_100001` 开始，不作为数据库关系主键。
+- 内部 Principal ID 继续使用 UUIDv7；昵称和 Handle 均不参与真实身份归属判定。
+- 迁移前的 `aic_...` 公开链接会通过别名表解析到新编号；新建 Card 只签发 `AI_...`。
 - 中文昵称可以重复；`@handle` 全局唯一，修改后的历史 Handle 继续保留，不能被重新注册。
 - AI Card 必须关联一个处于 active 状态的人类控制者。真正的控制者认证在 Phase 3 接入 Passkey 后生效。
 - 平台 Subject 按 `(client, principal)` 随机生成并持久化，同一平台稳定、不同平台不可直接关联。
@@ -67,13 +79,18 @@ Phase 2 提供以下内部能力：
 - Card JSON：`GET /api/v1/cards/:cardId`
 - 私有背面：`GET /me/card` 与 `GET /api/v1/me/card`，必须持有有效会话；匿名请求返回 `401 AUTHENTICATION_REQUIRED`。
 
-## Human Passkey Authentication
+## Unified Human Account Authentication
 
-- 首页支持中文昵称和唯一 `@handle` 创建人类 Card，也支持可发现 Passkey 的无用户名登录。
+- 首页支持中文昵称、唯一 `@handle` 和密码创建人类 Card；成功后立即进入当前 Card，不再要求另行注册或绑定。
+- 登录接受 `AI_100001` 形式的永久编号或 `@handle`；未知账号、错误密码和已停用凭据返回同一公开错误。
+- 密码最少 12 个字符，数据库只保存随机 16-byte salt 和 `scrypt` 64-byte 派生值，不保存明文或可逆凭据。
+- 统一注册要求预注册客户端和 32-128 位 Base64URL 幂等键；重试只在资料和原密码同时一致时恢复同一身份。
+- 注册和登录均受精确 Origin、限流、会话轮换和安全审计保护。
+- Passkey 作为可选增强认证：密码注册用户可在私有 Card 背面添加首个 Passkey。
 - Passkey 强制用户验证和 resident credential，不请求 attestation；支持 Touch ID、Face ID、Windows Hello 与外接安全密钥。
 - Session 与 challenge 只持久化 SHA-256 哈希；Session Cookie 为 `HttpOnly`、`SameSite=Strict`，状态变更同时检查精确 Origin 和 CSRF 双提交 Token。
 - challenge 五分钟过期且只能消费一次；登录会轮换 Session；敏感凭据操作要求五分钟内重新验证。
-- 一个控制者可以持有多个 Passkey，但在恢复机制完成前不能撤销最后一个有效 Passkey。
+- 一个控制者可以持有多个 Passkey；当前仍保守地禁止撤销最后一个有效 Passkey，等密码重新验证界面完成后再调整。
 - 本地入口必须使用 `http://localhost:3000`。生产配置必须使用 HTTPS，且 `WEBAUTHN_ORIGIN` 必须与 `APP_ORIGIN` 完全一致。
 
 ## Agent Enrollment And Node Identity
@@ -89,7 +106,7 @@ Phase 2 提供以下内部能力：
 
 ## Platform Authorization
 
-Phase 5B 只开放两个本地预注册公共客户端：
+Phase 5B migration 默认预注册两个本地公共客户端：
 
 | Client | Redirect URI | Audience |
 | --- | --- | --- |
@@ -121,7 +138,45 @@ Refresh 使用同一 token endpoint，提交 `grant_type=refresh_token`、`clien
 - scopes 为 `card.basic`、`card.handle`、`card.id`、`offline_access` 和 `agent.runtime`；只有 `yoyoo_dev` 允许请求后两项，`agent.runtime` 只用于 AI 身份运行节点。
 - 授权码、access token 和 refresh token 明文只出现在协议响应中，数据库只保存 SHA-256 摘要；幂等恢复响应使用 AES-256-GCM 密文保存。
 - 持卡人可在私有 Card 背面按身份查看本人和当前受控 AI 的平台授权；撤销要求有效会话、精确 Origin、CSRF 证明和 5 分钟内 Passkey 验证，并立即使关联 access/refresh token 失效。浏览器只提交 Grant ID，服务端依据实时控制关系判断管理权限。
-- 当前不支持动态客户端注册或完整 OAuth/OIDC Provider。
+- 当前不支持第三方动态客户端注册或完整 OAuth/OIDC Provider。
+
+### Controlled Product Registration
+
+旗下新产品由受信任运维人员使用显式 JSON 合同登记，不开放公共动态注册端点。JSON 不得包含数据库密码、Token 或其他秘密：
+
+```json
+{
+  "clientId": "product_name",
+  "displayName": "Product Name",
+  "audience": "product:name",
+  "redirectUris": ["https://product.example.com/auth/aicard/callback"],
+  "scopes": ["card.basic", "card.handle", "card.id"]
+}
+```
+
+```bash
+DATABASE_URL='postgresql://...' npm run platform:register -- ./product-client.json
+```
+
+- 生产 callback 必须使用 HTTPS；只有显式设置 `AICARD_ALLOW_INSECURE_LOCALHOST_CLIENT=true` 时才允许 `http://localhost` 本地开发回调。
+- 完全相同的重试会返回已有客户端，不会重复创建。已有 `clientId` 的 audience、callback 或 scope 变化会显式冲突，不会静默扩权。
+- 登记成功写入 `platform.client.registered` 安全审计事件。该工具是内部运维入口，不代替发布审批。
+
+生产切换前的只读体检：
+
+```bash
+npm run production:doctor
+```
+
+体检从 `.env.production.local` 读取配置，验证 HTTPS issuer/WebAuthn 边界、PostgreSQL migration ledger，以及 Yoyoo 生产 client、callback 和 scopes。任一检查失败即以非零状态退出，不修改数据库或生产配置。
+
+## First-Product Federation
+
+- 产品后端通过 `POST /api/v1/federation/validate`、`POST /api/v1/token` 和 `GET /api/v1/userinfo` 接入；不得导入 AI Card 内部 Service、Repository 或读取身份表。
+- 产品生成随机 state、PKCE verifier 和一次性 flow token。数据库只保存 flow/session 摘要及 AES-256-GCM 加密的恢复材料，不保存 verifier、授权码或 access token 明文。
+- 产品只保存本地 member ID、当前平台 pairwise Subject、经明确批准的 AI Card ID 和展示字段；不保存 AI Card Principal ID，不替代本地权限系统。
+- `aicard_web` 只表示 AI Card 官网直接注册。从合法产品授权入口进入时，注册审计归属服务端验证后的真实 `client_id`，不能由浏览器任意指定。
+- AI Card 网络失败、回调 state 不匹配或响应异常时，产品显示可重试错误且不创建本地替代身份；相同回调结果未知时返回同一成员和产品会话。
 
 ## Agent Runtime Session
 
@@ -150,7 +205,9 @@ Token 明文不写入数据库，不提供 refresh token。
 | `npm run build` | Next.js 生产构建 |
 | `npm test` | Vitest 单元测试 |
 | `npm run test:integration` | 自动启动隔离 PostgreSQL、迁移、测试并清理 |
-| `npm run test:e2e` | Playwright 桌面与移动端四态、公开 Card、真实虚拟 Passkey 与视觉回归测试；端口占用时可设置 `AICARD_E2E_PORT` |
+| `npm run test:e2e` | Playwright 桌面与移动端四态、密码账号、公开 Card、虚拟 Passkey、Agent 认领、平台授权与跨产品回归；默认使用专用端口 `4280/4281`，不复用既有服务 |
+| `npm run platform:register -- <client.json>` | 受控登记旗下产品客户端，重试幂等、配置漂移默认拒绝 |
+| `npm run production:doctor` | 只读检查生产身份权威配置、migration ledger 和 Yoyoo client 合同 |
 | `npm run verify` | 顺序执行全部门禁 |
 
 `test:integration` 默认使用本机已有或可拉取的 `postgres:17-alpine`。可通过 `AICARD_TEST_POSTGRES_IMAGE` 指定兼容镜像。
@@ -171,7 +228,7 @@ Token 明文不写入数据库，不提供 refresh token。
 - Agent 接入 API 只保存票据/查询秘密哈希和节点公钥；匿名接口受 schema、签名或秘密证明及速率限制保护。
 - 平台授权只接受预注册客户端、精确 redirect URI、S256 PKCE 和 scope allowlist；授权码单次消费，token 绑定 client、audience、grant、pairwise Subject 和 scopes。
 - 平台撤销、refresh family 重放检测和受保护资源的 active grant 检查已实现并自测。
-- 当前没有账号恢复和独立安全审查；最后一个 Passkey 禁止撤销，公网部署仍被明确禁止。
-- v0.1 只允许本地或明确受保护环境部署。
+- 当前没有账号找回、密码更换、多因子强制策略或独立安全审查；公网部署仍被明确禁止。
+- 当前版本只允许本地或明确受保护环境部署。
 
-详细设计见 [Product-Spec.md](./Product-Spec.md)、[协议 v0.1](./docs/protocol-v0.1.md) 和[威胁模型](./docs/security-threat-model.md)。
+详细设计见 [Product-Spec.md](./Product-Spec.md)、[统一账号协议 v0.2](./docs/protocol-v0.2.md)、[历史协议 v0.1](./docs/protocol-v0.1.md) 和[威胁模型](./docs/security-threat-model.md)。

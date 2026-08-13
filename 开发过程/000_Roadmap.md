@@ -6,9 +6,9 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 
 ## Current Release
 
-版本：v0.1
+版本：v0.2
 
-当前阶段：Phase 6B3 - 受控 AI 平台授权管理（已完成自动化自测；未独立安全审查或部署）
+当前阶段：Phase 8D - 旗下产品受控登记与生产只读体检已实现并通过本地全量门禁；生产切换、独立安全审查和部署未完成
 
 首个接入平台：Yoyoo
 
@@ -18,6 +18,8 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 - 人类和 AI 使用同一种基础身份模型。
 - Yoyoo 是第一个使用 AI Card 的平台，不是身份所有者。
 - AI Card ID 从第一天起全体系唯一。
+- AI Card ID 由唯一发行中心按 `AI_100001` 起顺序签发；产品、用户和 Agent 均不能指定编号。
+- 旗下产品中的“注册”是 AI Card 统一注册入口，不是产品私有身份注册。
 - Card 采用公开正面、平台可见和私有背面三层可见性。
 - 用户界面是正面和背面；不可展示秘密由系统保险库管理。
 - AI Card 证明身份并管理授权，平台保留本地业务权限。
@@ -41,9 +43,13 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 | 6B1 | 控制者选择 AI Card、Agent 授权与 Yoyoo 稳定身份映射 | Completed (Self-Tested) |
 | 6B2 | AI Card 节点运行时认证、任务传输与兼容迁移 | Completed (Self-Tested) |
 | 6B3 | 控制者查看和撤销受控 AI 的平台授权 | Completed (Self-Tested) |
+| 8A | `AI_100001` 权威发号、旧 ID 映射、密码注册登录与 Passkey 可选升级 | Completed (Local Self-Tested) |
+| 8B | 产品入口统一注册、一次性授权结果与第二产品复用验收 | Completed (Local Self-Tested) |
+| 8C | Yoyoo 停止本地发卡、历史身份映射与生产权威切换 | Implemented + Cross-Repo Self-Tested; Production Cutover Pending |
+| 8D | 旗下产品受控登记、配置防漂移与生产只读体检 | Completed (Local Self-Tested) |
 | 7 | 安全加固、恢复演练和 v0.1 交接 | Pending |
 
-Phase 3-6B3 的“Completed”表示实现、隔离 PostgreSQL、Chrome 虚拟认证器、协议测试 Agent，以及桌面/移动端自动化自测完成。Phase 6B2 另在本机使用全新人类与 Agent Card 完成 AI Card、Yoyoo 和真实外部 YOS 的冷启动端到端验收，覆盖入房、持久化回复和节点撤销；该验收仍由同一执行者完成，不等同于第三方独立审查。项目尚未经过独立安全验收、真实硬件 Passkey 人工验收或生产部署；账号恢复和生产级密钥管理未实现，公网部署保持关闭。
+Phase 3-6B3 的“Completed”表示实现、隔离 PostgreSQL、Chrome 虚拟认证器、协议测试 Agent，以及桌面/移动端自动化自测完成。Phase 8A 表示权威发号与密码账号门禁通过；Phase 8B 表示独立参考产品经公共 HTTP 接口完成创建/登录、授权、回调、本地映射、重复恢复和第二产品同卡验收。Phase 8C 表示 Yoyoo 已停止新的本地发卡、消费权威 `card_id` 与 pairwise Subject、建立可撤销联邦会话，并通过隔离双数据库、两次独立浏览器会话及 YOS `AI_100002` 认领、授权、运行令牌、精确房间 ID 发消息的跨仓自测；不表示已上线。Phase 8D 是已通过本地全量门禁的内部产品登记和只读生产体检，不是公共动态客户端注册，也不表示已部署。Phase 6B2 另在本机使用全新人类与 Agent Card 完成 AI Card、Yoyoo 和真实外部 YOS 的冷启动端到端验收，但仍不等同于第三方独立审查。项目尚未经过独立安全验收、真实硬件 Passkey 人工验收或生产部署；账号找回、密码变更和生产级密钥管理未实现，公网部署保持关闭。
 
 ## V0.1 Completion Conditions
 

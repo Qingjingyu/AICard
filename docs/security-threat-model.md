@@ -1,15 +1,15 @@
-# AI Card v0.1 Security Threat Model
+# AI Card v0.2 Security Threat Model
 
 ## Executive Summary
 
-AI Card 是跨平台身份与授权基础设施，最高风险不是普通资料泄露，而是身份被冒用、控制权被夺取、平台获得超额数据或权限、AI 节点密钥失窃后持续代表持卡人行动。Phase 1-5B 已有本地运行时代码和自动化自测，但尚未完成独立安全审查、生产密钥管理与公网加固。v0.1 只允许本地或明确受保护环境部署，完成独立安全审查前不得公网发布。
+AI Card 是跨平台身份与授权基础设施，最高风险不是普通资料泄露，而是身份被冒用、控制权被夺取、平台获得超额数据或权限、AI 节点密钥失窃后持续代表持卡人行动。Phase 8A 新增密码账号和可枚举顺序公开编号；Phase 8B 新增产品回调、产品本地会话和跨产品映射，必须额外防范撞库、账号枚举、幂等键泄露、回调混淆和产品越界读取。仓库已完成本地自动化自测，但尚未完成独立安全审查、生产密钥管理与公网加固。完成独立安全审查前不得公网发布。
 
 ## Scope And Assumptions
 
 ### In Scope
 
 - 人类 Principal、AI Principal、AI Card 与 Controller 的身份关系。
-- Passkey 注册、登录、重新验证、恢复和撤销。
+- 密码注册、登录、会话、限流，以及 Passkey 注册、登录、重新验证、恢复和撤销。
 - AI Card 邀请、认领、运行节点密钥与节点撤销。
 - 平台授权码、PKCE、access token、refresh token、scope 和撤销。
 - 公开正面、平台可见、私有背面与系统保险库的字段隔离。
@@ -24,7 +24,7 @@ AI Card 是跨平台身份与授权基础设施，最高风险不是普通资料
 
 ### Assumptions
 
-- v0.1 仅在本地或明确受保护环境运行，不直接暴露到公网。
+- v0.2 仅在本地或明确受保护环境运行，不直接暴露到公网。
 - AI 类型 Card 必须绑定一个已验证的人类 Controller。
 - Yoyoo 是唯一允许的平台客户端；额外测试客户端仅用于证明 pairwise Subject 隔离。
 - 所有正式流量最终使用 HTTPS；本地开发的 `localhost` 是唯一明文例外。
@@ -46,21 +46,22 @@ AI Card 是跨平台身份与授权基础设施，最高风险不是普通资料
 | --- | --- | --- | --- |
 | Web application | Card 创建、登录、公开正面、私有背面与平台授权同意/撤销 | Implemented through Phase 5B, self-tested | `src/app/` |
 | Identity service | Principal、Card、Controller、Handle 与状态机 | Implemented, self-tested | `src/server/identity-service.ts` |
-| Authenticator service | Passkey challenge 和响应验证 | Implemented, self-tested | `src/server/authentication/` |
+| Authenticator service | 密码 KDF、统一注册/登录、会话、限流与 Passkey challenge/响应验证 | Implemented through Phase 8A, self-tested | `src/server/authentication/` |
 | Enrollment service | 邀请票据、AI 认领、节点公钥和撤销 | Implemented, self-tested | `src/server/agent-enrollment-service.ts` |
 | Authorization service | 预注册客户端、授权码、PKCE、access/refresh token、幂等恢复、重放检测和撤销 | Implemented through Phase 5B, self-tested | `src/server/authorization/` |
-| PostgreSQL | 身份、凭据元数据、节点、平台授权摘要、加密恢复材料和审计 | Implemented through Phase 5B | `infra/postgres/migrations/0007_refresh_grants_and_revocation.sql` |
-| Platform client | Yoyoo 开发客户端与测试客户端可获取平台专属 Subject 和最小声明 | Protocol flow E2E simulated | `e2e/platform-consent.spec.ts` |
+| PostgreSQL | 身份、权威编号、密码/Passkey 凭据元数据、节点、平台授权摘要、加密恢复材料和审计 | Implemented through Phase 8A | `infra/postgres/migrations/0010_password_accounts.sql` |
+| Platform client | Yoyoo 开发客户端与独立参考产品可获取平台专属 Subject 和最小声明 | Phase 8B local E2E self-tested | `reference-product/`, `e2e/reference-product-federation.spec.ts` |
 | AI runtime node | 本机生成密钥，对挑战签名并代表 AI Card 连接 | Reference client implemented, E2E simulated | `scripts/agent-enrollment-reference.mts` |
 
 ### Data Flows And Trust Boundaries
 
-- 人类浏览器 -> Web application：昵称、Handle、Passkey 响应、授权同意；通过 HTTPS、Origin/RP ID 校验、CSRF 防护、schema 校验和限流保护。
+- 人类浏览器 -> Web application：昵称、Handle、密码、Passkey 响应、授权同意；通过 HTTPS、精确 Origin/RP ID 校验、CSRF 防护、schema 校验、幂等事务和限流保护。
 - Web application -> PostgreSQL：身份资料、凭据公钥、状态与审计；通过最小权限数据库账户、事务、唯一约束和字段级加密保护。
 - Controller -> Enrollment service：AI 昵称与创建邀请请求；要求有效会话、近期 Passkey 重新验证和幂等键。
 - AI runtime node -> Enrollment service：一次性票据、公钥、认领 ID 与签名；要求票据摘要匹配、未过期、未消费，并以事务完成认领。
 - Platform client -> Authorization service：client ID、redirect URI、state、PKCE challenge、scopes；要求预注册客户端和精确 redirect URI 匹配。
 - Authorization service -> Platform client：一次性 code、pairwise Subject、短期 token 与最小声明；code 绑定客户端、redirect URI、PKCE 和持卡人授权。
+- Reference product -> AI Card public API：只通过 validation、token 和 userinfo HTTP 端点；产品 schema 不引用 AI Card 表，不读取内部 Principal ID。
 - Runtime services -> Audit store：安全事件与关联 ID；禁止记录票据、授权码、Token、私钥和完整敏感请求体。
 
 #### Diagram
@@ -92,6 +93,8 @@ flowchart LR
 | Principal 与 Card 绑定 | 决定一个人或 AI 的长期身份 | Integrity, Availability |
 | Controller 关系 | 决定谁能管理、授权和撤销 AI Card | Integrity, Confidentiality |
 | Passkey 公钥与元数据 | 支撑人类认证并辅助检测凭据异常 | Integrity, Availability |
+| 密码派生值与 salt | 支撑统一账号登录，泄露后可被离线猜测 | Confidentiality, Integrity |
+| 注册幂等记录 | 恢复未知结果并防止重复发卡 | Confidentiality, Integrity |
 | AI 节点私钥 | 可代表 AI Card 发起认证；只能存在于节点本机 | Confidentiality, Integrity |
 | 邀请票据与授权码 | 可在短时间内创建或换取身份能力 | Confidentiality, Integrity |
 | Access/refresh token | 可代表 Card 调用平台授权范围内的接口 | Confidentiality, Integrity |
@@ -122,6 +125,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | Public Card URL | Anonymous HTTPS GET | Internet -> Web | Card ID format, public projection only, rate limit | `Product-Spec.md` Visibility Model |
 | Passkey options/verify | Browser HTTPS POST | Browser -> Authenticator | challenge, Origin, RP ID, user verification, expiry | `DEV-PLAN.md` Phase 3 |
+| Password register/login | Browser HTTPS POST | Browser -> Authenticator | exact Origin, scrypt, generic errors, idempotency, session rotation, rate limit | `DEV-PLAN.md` Phase 8A |
 | Invite creation | Authenticated HTTPS POST | Controller -> Enrollment | recent re-auth, Card ownership, idempotency | `Product-Spec.md` AI Card Enrollment |
 | Invite claim | Agent HTTPS POST | Agent -> Enrollment | token hash, expiry, single use, public key proof | `DEV-PLAN.md` Phase 4 |
 | Node challenge | Agent HTTPS POST | Agent -> Enrollment | nonce, signature, node/card state, replay cache | `Product-Spec.md` Authentication And Control |
@@ -140,6 +144,8 @@ flowchart LR
 6. 攻击者重放 refresh token -> 服务端接受旧 token 并签发新 access token -> 撤销与轮换失效。
 7. 恢复流程只依赖可转移的邮箱链接 -> 攻击者接管账户 -> 替换 Controller、Passkey 和节点。
 8. 日志记录完整邀请票据或 token -> 日志读取者复制凭据 -> 绕过正常认证流程。
+9. 自动化攻击者枚举 `AI_` 编号并对已知账号撞库 -> 猜中弱密码 -> 接管 Card 和平台授权。
+10. 注册幂等键泄露 -> 攻击者尝试重放注册 -> 如果服务端不再验证密码则可创建新会话。
 
 ## Threat Model Table
 
@@ -159,6 +165,8 @@ Existing controls 仅表示仓库内已实现并自测的能力，不代表独�
 | TM-010 | 竞态、缓存或错误恢复流程 | 撤销后仍有缓存、备份或并发请求 | 让旧节点、凭据或授权恢复有效 | 撤销承诺失效 | 全部撤销状态 | 已规定撤销和历史归属语义，见 `Product-Spec.md` Revoke | 无版本、缓存和恢复策略 | 数据库权威状态、短 TTL、撤销版本、缓存失效、恢复后重建 deny state | 撤销传播 SLO；恢复演练；旧凭据回归 | Medium：分布式状态常见 | High：已阻断身份重新生效 | High |
 | TM-011 | 日志、前端或错误处理缺陷 | 敏感值被调试输出或序列化 | 从日志/响应复制票据或 token | 绕过正常认证 | 票据、code、token、恢复材料 | 仅有“不回显长期秘密”原则，见 `Product-Spec.md` Product Principles | 无日志 allowlist、secret scan 或错误门禁 | 结构化日志 allowlist、统一脱敏、秘密类型禁止序列化、稳定错误码 | 仓库/日志 secret scan；错误路径集成测试 | Medium：开发阶段常发生 | High：泄露值可直接重放 | High |
 | TM-012 | 自动化远程攻击者 | 可访问公开 Card、challenge 或授权入口 | 枚举身份或消耗昂贵资源 | 服务降级和隐私探测 | 可用性、公开身份 | v0.1 限受保护环境，见 `Product-Spec.md` Non-Functional Requirements | 无限流、预算或压测证据 | 分层限流、challenge 上限、负缓存、超时、成本预算 | 429、延迟、队列深度和枚举模式告警 | High：公开后容易自动化 | Medium：通常不直接夺权 | Medium |
+| TM-013 | 撞库攻击者 | 可枚举 Card ID/Handle 并持有外部泄露密码字典 | 高频尝试账号密码并通过响应或时序区分账号 | 接管人类 Card | 密码凭据、Card、Grant | scrypt 随机 salt、未知账号等价 KDF、通用错误、按账号限流、会话轮换与集成测试 | 尚无 IP/设备风控、泄露密码检测和强制 MFA | 公网前增加网关分层限流、风险登录通知、可选 MFA 和泄露密码阻断 | 连续失败、多账号同源、成功前大量失败告警 | High：公网密码入口必然被扫描 | High：可直接接管身份 | Critical |
+| TM-014 | 获得注册重试材料的攻击者 | 幂等键、客户端和注册资料泄露 | 重放原注册并尝试恢复会话 | 绕过登录 | 注册记录、会话 | 幂等键只存 SHA-256、最小 32 位 Base64URL、重试校验资料指纹与原密码、错误密码回归测试 | 浏览器或调试工具仍可在请求期间读到原幂等键 | 客户端短期保持、不写日志、网关脱敏并监控异常重放 | 同键多源重放、密码失败与会话签发对账 | Low：需同时获得多项材料 | High：如实现回归可接管账号 | High |
 
 ## Criticality Calibration
 
@@ -176,12 +184,14 @@ Existing controls 仅表示仓库内已实现并自测的能力，不代表独�
 5. Phase 5：RFC 9700 风格授权码安全、PKCE、token rotation/reuse detection 和 scope/audience 测试。
 6. Phase 6：Yoyoo 只使用 pairwise Subject 建本地映射，不把 AI Card 当成本地权限系统。
 7. Phase 7：独立安全审查、备份恢复、撤销恢复验证和部署回滚演练。
+8. Phase 8A：数据库权威发号、scrypt 密码存储、通用登录错误、重试密码验证、限流、会话轮换和审计。
+9. Phase 8B：公共 HTTP 接口边界、精确回调、产品 CSRF、加密 flow 恢复、产品库无跨 schema 外键和失败不建替代身份。
 
 ## Focus Paths For Security Review
 
 | Path | Why It Matters | Threats |
 | --- | --- | --- |
-| `src/server/auth/` | Passkey challenge、Origin/RP ID 和会话认证 | TM-006, TM-007 |
+| `src/server/authentication/` | 密码 KDF、统一注册/登录、Passkey challenge、Origin/RP ID 和会话认证 | TM-006, TM-007, TM-013, TM-014 |
 | `src/server/enrollment/` | 单次邀请、认领事务、节点签名与撤销 | TM-001, TM-004, TM-010 |
 | `src/server/authorization/` | 授权码、PKCE、token、scope 和 audience | TM-002, TM-003, TM-009 |
 | `src/server/identity/` | Principal、Card、Controller 和状态机权威逻辑 | TM-005, TM-007, TM-010 |
