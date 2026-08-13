@@ -38,19 +38,6 @@ test.afterAll(async () => {
 });
 
 test('creates, claims, displays, and revokes an AI node', async ({ page }, testInfo) => {
-  const client = await page.context().newCDPSession(page);
-  await client.send('WebAuthn.enable');
-  await client.send('WebAuthn.addVirtualAuthenticator', {
-    options: {
-      protocol: 'ctap2',
-      transport: 'internal',
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-
   const suffix = `${testInfo.project.name.startsWith('mobile') ? 'm' : 'd'}${Date.now().toString(36)}`;
   controllerHandle = `owner_${suffix}`;
   const agentHandle = `agent_${suffix}`;
@@ -58,7 +45,8 @@ test('creates, claims, displays, and revokes an AI node', async ({ page }, testI
   await page.goto('/');
   await page.getByLabel('昵称').fill('AI 控制者');
   await page.getByLabel('@Handle').fill(controllerHandle);
-  await page.getByRole('button', { name: '使用 Passkey 创建' }).click();
+  await page.getByLabel('密码').fill('correct horse 电池 staple');
+  await page.getByRole('button', { name: '创建 AI Card', exact: true }).last().click();
   await expect(page).toHaveURL(/\/me\/card$/);
 
   await page.getByLabel('中文昵称').fill('悠悠助理');

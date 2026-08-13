@@ -47,7 +47,7 @@ describe('Agent enrollment protocol', () => {
   it('builds a complete instruction instead of exposing a context-free ticket', () => {
     const instruction = buildAgentEnrollmentInstructions({
       displayName: '悠悠',
-      cardId: 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VW',
+      cardId: 'AI_100001',
       invitationId: '019f78ba-6ea8-7e85-bdaf-05b5fe7aa0a1',
       serviceUrl: 'https://id.example.com',
       ticket: 'A'.repeat(43),

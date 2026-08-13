@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 
-import { createCardId, createPrincipalId } from '@/domain/identity/ids';
+import { createPrincipalId } from '@/domain/identity/ids';
 import type { IdentityRecord } from '@/domain/identity/types';
 import { AgentEnrollmentStateError } from '@/server/agent-enrollment-errors';
 import {
@@ -79,7 +79,7 @@ export class PostgresAgentEnrollmentRepository {
   }): Promise<{ card: IdentityRecord; createdAt: Date }> {
     const client = await this.pool.connect();
     let principalId = createPrincipalId();
-    let cardId = createCardId();
+    let cardId: string;
     let displayName = input.displayName;
     let handle = input.handle;
     let createdAt: Date;
@@ -113,13 +113,18 @@ export class PostgresAgentEnrollmentRepository {
       } else {
         if (!displayName || !handle) throw new AgentEnrollmentStateError('AI Card identity is required');
         await client.query('insert into principals (principal_id, principal_type) values ($1, $2)', [principalId, 'ai']);
-        const cardResult = await client.query<{ created_at: Date; updated_at: Date }>(
-          `insert into ai_cards (card_id, principal_id, display_name)
-           values ($1, $2, $3) returning created_at, updated_at`,
-          [cardId, principalId, displayName],
+        const cardResult = await client.query<{
+          card_id: string;
+          created_at: Date;
+          updated_at: Date;
+        }>(
+          `insert into ai_cards (principal_id, display_name)
+           values ($1, $2) returning card_id, created_at, updated_at`,
+          [principalId, displayName],
         );
         const row = cardResult.rows[0];
         if (!row) throw new Error('AI Card insert did not return timestamps');
+        cardId = row.card_id;
         createdAt = row.created_at;
         updatedAt = row.updated_at;
         await client.query('insert into card_handles (handle, card_id) values ($1, $2)', [handle, cardId]);
