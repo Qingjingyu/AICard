@@ -27,7 +27,7 @@ export function json(data: unknown, status = 200): NextResponse {
 export function setSessionCookies(
   response: NextResponse,
   input: { sessionToken: string; csrfToken: string },
-  config: ServerConfig,
+  config: Pick<ServerConfig, 'nodeEnv'>,
 ): void {
   const secure = config.nodeEnv === 'production';
   response.cookies.set(SESSION_COOKIE, input.sessionToken, {
@@ -67,7 +67,7 @@ export async function requireRequestSession(request: Request, service: Authentic
 
 export function requireRecentVerification(verifiedAt: Date): void {
   if (Date.now() - verifiedAt.getTime() > REVERIFICATION_MAX_AGE_MS) {
-    throw new AuthenticationStateError('Recent Passkey verification is required');
+    throw new AuthenticationStateError('Recent identity verification is required');
   }
 }
 
@@ -101,7 +101,7 @@ export function authErrorResponse(error: unknown, id = requestId()): NextRespons
   } else if (error instanceof AuthenticationVerificationError) {
     status = 401;
     code = 'AUTHENTICATION_REQUIRED';
-    message = 'Passkey verification failed';
+    message = error.message;
     retryable = false;
   } else if (error instanceof AuthenticationStateError) {
     retryable = false;
