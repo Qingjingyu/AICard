@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { CardFront } from '@/components/card/card-front';
-import { cardIdSchema } from '@/domain/identity/schemas';
+import { publicCardLookupSchema } from '@/domain/identity/schemas';
 import { IdentityNotFoundError } from '@/server/identity-errors';
 import { getIdentityService } from '@/server/identity';
 
@@ -18,7 +18,7 @@ async function loadPublicCard(cardId: string) {
 }
 
 export default async function PublicCardPage({ params }: { params: Promise<{ cardId: string }> }) {
-  const parsedCardId = cardIdSchema.safeParse((await params).cardId);
+  const parsedCardId = publicCardLookupSchema.safeParse((await params).cardId);
   if (!parsedCardId.success) notFound();
   const card = await loadPublicCard(parsedCardId.data);
 

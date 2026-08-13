@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { IdentityNotFoundError } from '@/server/identity-errors';
 
-const validCardId = 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VW';
+const validCardId = 'AI_100001';
 
 describe('public Card route', () => {
   it('returns the explicit public projection with no-store caching', async () => {
@@ -41,6 +41,20 @@ describe('public Card route', () => {
     expect(response.status).toBe(400);
     expect(getPublicCard).not.toHaveBeenCalled();
     expect(await response.json()).toMatchObject({ error: { code: 'INVALID_REQUEST' } });
+  });
+
+  it('accepts a legacy public ID only as a read alias', async () => {
+    const { createPublicCardRoute } = await import('@/app/api/v1/cards/[cardId]/route');
+    const getPublicCard = vi.fn().mockResolvedValue({ card_id: validCardId });
+    const GET = createPublicCardRoute({ getPublicCard });
+    const legacyId = 'aic_01J4Z7Y8K9M2N3P4Q5R6S7T8VW';
+
+    const response = await GET(new Request(`http://localhost/api/v1/cards/${legacyId}`), {
+      params: Promise.resolve({ cardId: legacyId }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(getPublicCard).toHaveBeenCalledWith(legacyId);
   });
 
   it('returns a stable not-found error without internal details', async () => {

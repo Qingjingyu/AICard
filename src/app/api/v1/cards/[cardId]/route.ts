@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { ZodError } from 'zod';
 
-import { cardIdSchema } from '@/domain/identity/schemas';
+import { publicCardLookupSchema } from '@/domain/identity/schemas';
 import { createErrorEnvelope } from '@/lib/contracts/errors';
 import { IdentityNotFoundError } from '@/server/identity-errors';
 import { getIdentityService } from '@/server/identity';
@@ -38,7 +38,7 @@ export function createPublicCardRoute(reader: PublicCardReader) {
 
     try {
       const { cardId: rawCardId } = await context.params;
-      const cardId = cardIdSchema.parse(rawCardId);
+      const cardId = publicCardLookupSchema.parse(rawCardId);
       const card = await reader.getPublicCard(cardId);
       return Response.json(card, {
         status: 200,
