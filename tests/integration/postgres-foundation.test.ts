@@ -50,6 +50,11 @@ describe('PostgreSQL foundation', () => {
       '0006_platform_token_subject_binding.sql',
       '0007_refresh_grants_and_revocation.sql',
       '0008_agent_runtime_sessions.sql',
+      '0009_unified_ai_card_ids.sql',
+      '0010_password_accounts.sql',
+      '0011_product_federation_clients.sql',
+      '0012_reference_product_sessions.sql',
+      '0013_aicard_web_registration_client.sql',
     ]);
     for (const migration of result.rows) {
       expect(migration.checksum).toMatch(/^[a-f0-9]{64}$/);
