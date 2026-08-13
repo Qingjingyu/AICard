@@ -341,39 +341,48 @@ describe('platform authorization service', () => {
     const holder = await createHolder();
     const yoyoo = requestFor('yoyoo_dev');
     const testClient = requestFor('test_client');
+    const yoyooRequest = { ...yoyoo.request, scope: 'card.basic card.handle card.id' };
+    const testClientRequest = { ...testClient.request, scope: 'card.basic card.handle card.id' };
 
     const yoyooApproval = await service.resolveConsent({
       principalId: holder.principalId,
       decision: 'approve',
-      request: yoyoo.request,
+      request: yoyooRequest,
     });
     const testApproval = await service.resolveConsent({
       principalId: holder.principalId,
       decision: 'approve',
-      request: testClient.request,
+      request: testClientRequest,
     });
     const yoyooToken = await service.exchangeAuthorizationCode({
       grantType: 'authorization_code',
-      clientId: yoyoo.request.clientId,
-      redirectUri: yoyoo.request.redirectUri,
+      clientId: yoyooRequest.clientId,
+      redirectUri: yoyooRequest.redirectUri,
       code: yoyooApproval.code!,
       codeVerifier: yoyoo.codeVerifier,
       idempotencyKey: idempotencyKey(),
     });
     const testToken = await service.exchangeAuthorizationCode({
       grantType: 'authorization_code',
-      clientId: testClient.request.clientId,
-      redirectUri: testClient.request.redirectUri,
+      clientId: testClientRequest.clientId,
+      redirectUri: testClientRequest.redirectUri,
       code: testApproval.code!,
       codeVerifier: testClient.codeVerifier,
       idempotencyKey: idempotencyKey(),
     });
+    const [yoyooProfile, testClientProfile] = await Promise.all([
+      service.getUserInfo(yoyooToken.accessToken),
+      service.getUserInfo(testToken.accessToken),
+    ]);
 
     expect(yoyooToken.subject).not.toBe(testToken.subject);
+    expect(yoyooProfile).toMatchObject({ sub: yoyooToken.subject, card_id: holder.cardId });
+    expect(testClientProfile).toMatchObject({ sub: testToken.subject, card_id: holder.cardId });
     expect((await pool.query(
       'select subject from platform_subjects where principal_id = $1',
       [holder.principalId],
     )).rowCount).toBe(2);
+    expect((await pool.query('select card_id from ai_cards')).rows).toEqual([{ card_id: holder.cardId }]);
   });
 
   it('does not approve or exchange authorization material for a non-active Card', async () => {

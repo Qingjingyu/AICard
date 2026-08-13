@@ -9,14 +9,18 @@
   "packageManager": "npm@11.6.0",
   "scripts": {
     "dev": "next dev",
+    "dev:reference-product": "node --env-file-if-exists=.env.local --import tsx reference-product/server.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests/unit",
     "test:integration": "node scripts/test-integration.mjs",
+    "test:federation:yoyoo": "node scripts/test-yoyoo-federation.mjs",
     "test:e2e": "playwright test",
     "db:migrate": "node --env-file-if-exists=.env.local --import tsx infra/postgres/migrate.ts",
+    "platform:register": "node --env-file-if-exists=.env.local --import tsx scripts/register-platform-client.ts",
+    "production:doctor": "node --env-file-if-exists=.env.production.local scripts/production-doctor.mjs",
     "verify": "npm run lint && npm run typecheck && npm run build && npm run test && npm run test:integration && npm run test:e2e"
   },
   "dependencies": {
