@@ -10,7 +10,7 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 
 当前阶段：Phase 8E - 独立生产发布基础已部署并完成公网自验；独立安全审查和首次真实持卡人验收未完成
 
-下一切片：Phase 8F - 第一方产品内置身份入口已在隔离分支实现并完成定向单测，尚未全量验收、合并或部署
+下一切片：Phase 8F - 第一方产品内置身份入口已在隔离分支完成本地全量与双服务验收，尚未合并或部署
 
 首个接入平台：Yoyoo
 
@@ -50,10 +50,10 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 | 8C | Yoyoo 停止本地发卡、历史身份映射与生产权威切换 | Deployed + Publicly Self-Verified |
 | 8D | 旗下产品受控登记、配置防漂移与生产只读体检 | Completed (Local Self-Tested) |
 | 8E | 独立镜像、数据库、正式客户端、反代、体检与回滚发布包 | Deployed + Publicly Self-Verified |
-| 8F | Yoyoo 内置登录/创建入口、精确来源 CORS 与原有 PKCE 回调 | Implemented (Targeted Tests Only) |
+| 8F | Yoyoo 内置登录/创建入口、精确来源 CORS 与原有 PKCE 回调 | Completed (Local Self-Tested) |
 | 7 | 安全加固、恢复演练和 v0.1 交接 | Pending |
 
-Phase 3-6B3 的“Completed”表示实现、隔离 PostgreSQL、Chrome 虚拟认证器、协议测试 Agent，以及桌面/移动端自动化自测完成。Phase 8A 表示权威发号与密码账号门禁通过；Phase 8B 表示独立参考产品经公共 HTTP 接口完成创建/登录、授权、回调、本地映射、重复恢复和第二产品同卡验收。Phase 8C 与 8E 已于 2026-08-14 部署到 `id.yoyooai.com` 与 `app.yoyooai.com`，独立数据库、14/18 条迁移、`yoyoo_prod`、HTTPS、production doctor、错误身份拒绝和桌面/移动浏览器均完成公网自验；没有创建临时账号，首张 `AI_100001` 仍保留给苏白。Phase 8D 是已通过本地全量门禁的内部产品登记和只读生产体检，不是公共动态客户端注册。Phase 6B2 另在本机使用全新人类与 Agent Card 完成 AI Card、Yoyoo 和真实外部 YOS 的冷启动端到端验收，但仍不等同于第三方独立审查。项目尚未经过独立安全验收或真实硬件 Passkey 人工验收；账号找回、密码变更和生产级密钥管理仍未实现。
+Phase 3-6B3 的“Completed”表示实现、隔离 PostgreSQL、Chrome 虚拟认证器、协议测试 Agent，以及桌面/移动端自动化自测完成。Phase 8A 表示权威发号与密码账号门禁通过；Phase 8B 表示独立参考产品经公共 HTTP 接口完成创建/登录、授权、回调、本地映射、重复恢复和第二产品同卡验收。Phase 8F 在隔离 PostgreSQL 与双 HTTPS 生产构建中完成 Yoyoo 同页创建、自动授权、第二浏览器登录、稳定身份复用、密码目的地限制和 YOS Agent 运行时验收。Phase 8C 与 8E 已于 2026-08-14 部署到 `id.yoyooai.com` 与 `app.yoyooai.com`，独立数据库、14/18 条迁移、`yoyoo_prod`、HTTPS、production doctor、错误身份拒绝和桌面/移动浏览器均完成公网自验；没有创建临时账号，首张 `AI_100001` 仍保留给苏白。Phase 8D 是已通过本地全量门禁的内部产品登记和只读生产体检，不是公共动态客户端注册。Phase 6B2 另在本机使用全新人类与 Agent Card 完成 AI Card、Yoyoo 和真实外部 YOS 的冷启动端到端验收，但仍不等同于第三方独立审查。项目尚未经过独立安全验收或真实硬件 Passkey 人工验收；账号找回、密码变更和生产级密钥管理仍未实现。
 
 ## V0.1 Completion Conditions
 

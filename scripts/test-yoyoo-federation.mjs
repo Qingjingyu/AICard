@@ -401,17 +401,24 @@ async function runBrowserAcceptance(aicardDatabaseUrl, yoyooDatabaseUrl) {
   try {
     const firstContext = await browser.newContext({ ignoreHTTPSErrors: true });
     const firstPage = await firstContext.newPage();
+    const firstCredentialDestinations = [];
+    firstPage.on('request', (request) => {
+      if (request.postData()?.includes(password)) firstCredentialDestinations.push(request.url());
+    });
     await firstPage.goto(`${yoyooOrigin}/login`);
-    await firstPage.getByRole('link', { name: '使用 AI Card 继续' }).click();
-    await firstPage.getByRole('heading', { name: '你的 AI 时代身份' }).waitFor();
+    await firstPage.getByRole('tab', { name: '创建 AI Card' }).click();
     await firstPage.getByLabel('昵称').fill('Yoyoo 联邦验收用户');
-    await firstPage.getByLabel('@Handle').fill(handle);
-    await firstPage.getByLabel('密码').fill(password);
-    await firstPage.getByRole('button', { name: '创建 AI Card', exact: true }).last().click();
-    await firstPage.getByRole('heading', { name: '允许 Yoyoo 认识你？' }).waitFor();
-    await firstPage.getByRole('button', { name: '允许访问' }).click();
+    await firstPage.getByLabel('用户名').fill(handle);
+    await firstPage.getByLabel('设置密码').fill(password);
+    await firstPage.getByLabel('确认密码').fill(password);
+    await firstPage.getByRole('button', { name: '创建并进入 Yoyoo' }).click();
     await firstPage.waitForURL((url) => url.origin === yoyooOrigin && url.searchParams.get('aicard') === 'connected');
     await assertAuthenticatedSession(firstPage);
+    assert(firstCredentialDestinations.length === 1, 'Registration did not send credentials exactly once');
+    assert(
+      firstCredentialDestinations.every((destination) => new URL(destination).origin === aicardOrigin),
+      'Registration credentials were sent outside the authoritative AI Card origin',
+    );
 
     const cardResult = await query(
       aicardDatabaseUrl,
@@ -452,16 +459,21 @@ async function runBrowserAcceptance(aicardDatabaseUrl, yoyooDatabaseUrl) {
 
     const secondContext = await browser.newContext({ ignoreHTTPSErrors: true });
     const secondPage = await secondContext.newPage();
+    const secondCredentialDestinations = [];
+    secondPage.on('request', (request) => {
+      if (request.postData()?.includes(password)) secondCredentialDestinations.push(request.url());
+    });
     await secondPage.goto(`${yoyooOrigin}/login`);
-    await secondPage.getByRole('link', { name: '使用 AI Card 继续' }).click();
-    await secondPage.getByRole('button', { name: '登录' }).click();
-    await secondPage.getByLabel('AI Card ID 或 @Handle').fill('AI_100001');
+    await secondPage.getByLabel('AI Card ID 或用户名').fill('AI_100001');
     await secondPage.getByLabel('密码').fill(password);
-    await secondPage.getByRole('button', { name: '登录', exact: true }).last().click();
-    await secondPage.getByRole('heading', { name: '允许 Yoyoo 认识你？' }).waitFor();
-    await secondPage.getByRole('button', { name: '允许访问' }).click();
+    await secondPage.getByRole('button', { name: '进入 Yoyoo' }).click();
     await secondPage.waitForURL((url) => url.origin === yoyooOrigin && url.searchParams.get('aicard') === 'connected');
     await assertAuthenticatedSession(secondPage);
+    assert(secondCredentialDestinations.length === 1, 'Login did not send credentials exactly once');
+    assert(
+      secondCredentialDestinations.every((destination) => new URL(destination).origin === aicardOrigin),
+      'Login credentials were sent outside the authoritative AI Card origin',
+    );
 
     const reusedIdentity = await query(
       yoyooDatabaseUrl,
@@ -518,6 +530,7 @@ async function main() {
     ...process.env,
     NODE_ENV: 'production',
     APP_ORIGIN: aicardOrigin,
+    TRUSTED_PRODUCT_ORIGINS: yoyooOrigin,
     DATABASE_URL: aicardDatabaseUrl,
     WEBAUTHN_RP_NAME: 'AI Card',
     WEBAUTHN_RP_ID: 'localhost',
