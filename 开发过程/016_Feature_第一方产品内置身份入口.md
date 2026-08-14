@@ -27,7 +27,9 @@ Yoyoo 需要把 AI Card 呈现为内置统一身份，而不是要求用户跳�
 - 双服务生产构建浏览器验收通过：Yoyoo 同页创建 `AI_100001`、自动授权进入、第二浏览器再次登录、YOS Agent 认领与运行时传输均成功。
 - 浏览器请求断言确认包含密码的注册与登录请求各发送一次，且目的地仅为精确 AI Card Origin。
 - `npm run typecheck`、`npm run lint` 与 `npm run build` 通过。
-- 生产部署未进行；真实公网持卡人验收和独立安全审查仍未完成。
+- 2026-08-15 以 `aicard:11bb31f` 发布到 `id.yoyooai.com`；production doctor、双站健康、精确来源 CORS 204 和未知来源 403 均通过。
+- 发布前备份位于 `/opt/yoyoo/backups/embedded-aicard-entry-20260814T152735Z`，数据库 dump、Blob/Nginx 归档和 SHA-256 均已校验；旧镜像保留用于应用级回滚。
+- 生产未创建测试 Card；真实公网持卡人首次注册和独立安全审查仍未完成。
 
 ## 影响范围
 
