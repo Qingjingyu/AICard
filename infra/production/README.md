@@ -9,6 +9,9 @@ It uses a dedicated PostgreSQL database and binds the application only to
 - `yoyoo_prod` is the production client. `yoyoo_dev` remains localhost-only.
 - The exact Yoyoo callback is
   `https://app.yoyooai.com/auth/aicard/callback`.
+- `TRUSTED_PRODUCT_ORIGINS` is an exact, comma-separated HTTPS origin allowlist.
+  The first release contains only `https://app.yoyooai.com`; paths, wildcards,
+  sibling subdomains, and HTTP production origins are rejected.
 - Migrations are checksum tracked and forward-only.
 - The tracked client document contains no secret. Database passwords remain in
   the untracked production `.env` only.
@@ -62,6 +65,16 @@ YOYOO_AICARD_SESSION_SECRET=<host-generated-32-byte-base64url-value>
 Restart only the Yoyoo app container. Keep password mode during the first
 release so the existing owner can recover if the identity provider is
 unavailable; the UI still makes AI Card the primary path.
+
+Before replacing that recovery UI, set this value in the AI Card production
+environment and recreate only its application container:
+
+```dotenv
+TRUSTED_PRODUCT_ORIGINS=https://app.yoyooai.com
+```
+
+The browser then submits credentials directly to AI Card with a host-only
+session cookie. Yoyoo receives only the public PKCE request and callback.
 
 ## Acceptance
 

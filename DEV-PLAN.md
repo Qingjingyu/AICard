@@ -33,6 +33,8 @@ AI Card 作为独立身份中心开发，Yoyoo 是第一个平台客户端。v0.
 #### Deliverables
 
 - 扩展预注册平台客户端契约，支持从产品入口发起统一注册和已有账号登录。
+- 为第一方产品增加精确 origin 白名单与 credentialed CORS。浏览器可在产品自有界面直接向 AI Card 提交凭据，产品后端不接收密码。
+- 登录、注册和授权接口继续强制限流、host-only 会话 Cookie、CSRF、PKCE、state、一次性 code、幂等和审计；禁止通配 origin。
 - 注册成功后签发一次性授权结果，当前产品自动建立 pairwise Subject 映射和本地会话。
 - 第二个测试产品完成同一 Card 复用验收，证明不会重复创建 Principal、Card 或凭据。
 - Card 私有页直接展示当前登录人的 Card；移除“再次登录/注册/绑定 AI Card”的产品路径。

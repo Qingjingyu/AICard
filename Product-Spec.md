@@ -180,8 +180,8 @@ AI Card 需要解决：
 
 ### Human Card Creation
 
-1. 用户从任意旗下产品进入统一注册流程，填写中文昵称、可用 `@handle` 和密码。
-2. 产品后端携带预注册客户端身份和幂等键调用 AI Card，不自行写身份记录。
+1. 用户在任意旗下产品的自有界面中填写中文昵称、可用 `@handle` 和密码，无需感知跳转到独立身份站点。
+2. 浏览器只把凭据发送到 AI Card 明确允许的第一方产品接入接口；业务产品后端和数据库不得接收或记录密码。
 3. AI Card 在一个事务内创建 Principal、分配下一个永久 `AI_` 编号、保存密码哈希并写审计。
 4. AI Card 向当前产品返回一次性授权结果；产品建立本地成员映射和会话。
 5. 用户立即看到自己的 Card；可随后添加 Passkey，不需要再次注册或绑定。
@@ -189,10 +189,17 @@ AI Card 需要解决：
 ### Existing Card Sign-in To Another Product
 
 1. 用户在另一个旗下产品选择登录。
-2. 产品跳转到 AI Card，用户用 AI Card ID、`@handle` 或 Passkey 验证身份。
-3. 用户确认该产品申请的最小资料和权限。
+2. 用户在该产品的第一方界面中使用 AI Card ID、`@handle` 或 Passkey 验证身份；凭据仍只由 AI Card 接收和验证。
+3. 旗下可信产品可以在同一界面完成预登记最小权限授权，但必须保留 CSRF、PKCE、state、一次性授权码和审计。
 4. 产品只获得稳定 pairwise Subject 与获准声明，并映射到本地成员。
 5. AI Card、公开编号和控制关系保持不变。
+
+### First-Party Embedded Entry
+
+- AI Card 通过精确 origin 白名单为旗下产品开放携带凭据的浏览器请求，禁止 `*`、路径、查询参数和非受信来源。
+- 生产白名单只接受 HTTPS；开发环境只额外接受 `localhost` 和 `127.0.0.1`。
+- 登录或注册成功可以返回非秘密 CSRF token 与公开 Card 摘要，但 session token 只能保存在 AI Card host-only、HttpOnly Cookie 中。
+- 业务产品必须使用预注册 client、redirect URI、scope、PKCE 和 state 完成一次性授权；内置界面不能绕过平台授权模型。
 
 ### AI Card Enrollment
 
