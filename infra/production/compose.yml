@@ -3,6 +3,7 @@ name: aicard-public
 x-app-environment: &app-environment
   NODE_ENV: production
   APP_ORIGIN: https://${AICARD_DOMAIN:?AICARD_DOMAIN is required}
+  TRUSTED_PRODUCT_ORIGINS: ${TRUSTED_PRODUCT_ORIGINS:?TRUSTED_PRODUCT_ORIGINS is required}
   DATABASE_URL: postgresql://aicard:${POSTGRES_PASSWORD}@postgres:5432/aicard
   LOG_LEVEL: info
   WEBAUTHN_RP_NAME: AI Card

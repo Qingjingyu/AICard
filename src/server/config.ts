@@ -6,6 +6,7 @@ const environmentSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     APP_ORIGIN: z.url(),
+    TRUSTED_PRODUCT_ORIGINS: z.string().default(''),
     DATABASE_URL: z.string().refine((value) => {
       try {
         const protocol = new URL(value).protocol;
@@ -49,6 +50,7 @@ const environmentSchema = z
 export type ServerConfig = {
   nodeEnv: 'development' | 'test' | 'production';
   appOrigin: string;
+  trustedProductOrigins: readonly string[];
   databaseUrl: string;
   logLevel: (typeof logLevels)[number];
   webauthn: {
@@ -57,6 +59,36 @@ export type ServerConfig = {
     origin: string;
   };
 };
+
+function parseTrustedProductOrigins(
+  value: string,
+  nodeEnv: ServerConfig['nodeEnv'],
+): string[] {
+  const origins: string[] = [];
+  for (const candidate of value.split(',').map((item) => item.trim()).filter(Boolean)) {
+    let url: URL;
+    try {
+      url = new URL(candidate);
+    } catch {
+      throw new ConfigurationError(['TRUSTED_PRODUCT_ORIGINS']);
+    }
+    const isExactOrigin = candidate === url.origin
+      && url.pathname === '/'
+      && !url.search
+      && !url.hash
+      && !url.username
+      && !url.password;
+    const isSecure = url.protocol === 'https:';
+    const isLocalDevelopment = nodeEnv !== 'production'
+      && url.protocol === 'http:'
+      && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+    if (!isExactOrigin || (!isSecure && !isLocalDevelopment)) {
+      throw new ConfigurationError(['TRUSTED_PRODUCT_ORIGINS']);
+    }
+    if (!origins.includes(url.origin)) origins.push(url.origin);
+  }
+  return origins;
+}
 
 export class ConfigurationError extends Error {
   constructor(readonly fields: string[]) {
@@ -76,6 +108,10 @@ export function parseServerConfig(environment: NodeJS.ProcessEnv): ServerConfig 
   return {
     nodeEnv: result.data.NODE_ENV,
     appOrigin: result.data.APP_ORIGIN,
+    trustedProductOrigins: parseTrustedProductOrigins(
+      result.data.TRUSTED_PRODUCT_ORIGINS,
+      result.data.NODE_ENV,
+    ),
     databaseUrl: result.data.DATABASE_URL,
     logLevel: result.data.LOG_LEVEL,
     webauthn: {
