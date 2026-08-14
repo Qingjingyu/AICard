@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import type { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { displayNameSchema, handleSchema } from '@/domain/identity/schemas';
@@ -13,7 +14,11 @@ import type { PasswordAuthenticationService } from '@/server/authentication/pass
 import { getPasswordAuthenticationService } from '@/server/authentication/password-authentication';
 import { AuthenticationStateError } from '@/server/authentication/errors';
 import { passwordSchema } from '@/server/authentication/password-security';
-import { assertMutationOrigin } from '@/server/authentication/http-auth';
+import {
+  assertTrustedProductMutationOrigin,
+  createTrustedProductPreflight,
+  withTrustedProductCors,
+} from '@/server/authentication/trusted-product-cors';
 import { getServerConfig, type ServerConfig } from '@/server/config';
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +34,7 @@ const idempotencyKeySchema = z.string().regex(/^[A-Za-z0-9_-]{32,128}$/);
 type PasswordRegistrationRouteDependencies = {
   register: PasswordAuthenticationService['register'];
   beforeRequest(key: string): Promise<void>;
-  config: Pick<ServerConfig, 'nodeEnv' | 'appOrigin'>;
+  config: Pick<ServerConfig, 'nodeEnv' | 'appOrigin' | 'trustedProductOrigins'>;
 };
 
 export function createPasswordRegistrationRoute(
@@ -37,26 +42,40 @@ export function createPasswordRegistrationRoute(
 ) {
   return async function passwordRegistrationRoute(request: Request): Promise<Response> {
     const id = requestId();
+    let response: NextResponse;
     try {
-      assertMutationOrigin(request, dependencies.config.appOrigin);
+      assertTrustedProductMutationOrigin(request, dependencies.config);
       const idempotencyKey = idempotencyKeySchema.parse(request.headers.get('idempotency-key'));
       const input = inputSchema.parse(await request.json());
       await dependencies.beforeRequest(
         createHash('sha256').update(`${input.clientId}\0${input.handle}`, 'utf8').digest('hex'),
       );
       const result = await dependencies.register({ ...input, idempotencyKey, requestId: id });
-      const response = json({
+      response = json({
         card: {
           card_id: result.card.cardId,
           handle: result.card.handle,
           display_name: result.card.displayName,
         },
         replayed: result.replayed,
+        csrf_token: result.csrfToken,
       }, result.replayed ? 200 : 201);
       setSessionCookies(response, result, dependencies.config);
-      return response;
     } catch (error) {
-      return authErrorResponse(error, id);
+      response = authErrorResponse(error, id);
+    }
+    return withTrustedProductCors(request, response, dependencies.config);
+  };
+}
+
+export function createPasswordRegistrationOptionsRoute(
+  config: Pick<ServerConfig, 'appOrigin' | 'trustedProductOrigins'>,
+) {
+  return function passwordRegistrationOptionsRoute(request: Request): Response {
+    try {
+      return createTrustedProductPreflight(request, config);
+    } catch (error) {
+      return withTrustedProductCors(request, authErrorResponse(error), config);
     }
   };
 }
@@ -82,4 +101,8 @@ export async function POST(request: Request): Promise<Response> {
     },
     config,
   })(request);
+}
+
+export async function OPTIONS(request: Request): Promise<Response> {
+  return createPasswordRegistrationOptionsRoute(getServerConfig())(request);
 }
