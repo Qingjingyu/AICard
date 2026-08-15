@@ -9,6 +9,7 @@ const supportedScopes = [
   'card.id',
   'offline_access',
   'agent.runtime',
+  'agent.enroll',
 ] as const satisfies readonly AuthorizationScope[];
 
 const registrationSchema = z.object({

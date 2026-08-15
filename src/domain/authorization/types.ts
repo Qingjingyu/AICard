@@ -2,7 +2,7 @@ import type { PlatformScope } from '@/domain/identity/types';
 
 export type AuthorizationScope = Extract<
   PlatformScope,
-  'card.basic' | 'card.handle' | 'card.id' | 'offline_access' | 'agent.runtime'
+  'card.basic' | 'card.handle' | 'card.id' | 'offline_access' | 'agent.runtime' | 'agent.enroll'
 >;
 
 export type AuthorizationClient = {

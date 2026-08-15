@@ -10,6 +10,7 @@ const AUTHORIZATION_SCOPES = [
   'card.id',
   'offline_access',
   'agent.runtime',
+  'agent.enroll',
 ] as const;
 const authorizationScopeSet = new Set<string>(AUTHORIZATION_SCOPES);
 const pkceVerifierSchema = z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/);
