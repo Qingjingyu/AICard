@@ -10,6 +10,7 @@ import {
 import { requestId } from '@/server/authentication/auth-route';
 import { AuthenticationStateError } from '@/server/authentication/errors';
 import { IdentityConflictError } from '@/server/identity-errors';
+import { PlatformAccessTokenError, PlatformAuthorizationError } from '@/server/authorization/errors';
 
 export function agentJson(data: unknown, status = 200): NextResponse {
   return NextResponse.json(data, { status, headers: { 'cache-control': 'no-store' } });
@@ -29,6 +30,16 @@ export function agentErrorResponse(error: unknown, id = requestId()): NextRespon
   } else if (error instanceof AgentEnrollmentVerificationError) {
     status = 401;
     code = 'AUTHENTICATION_REQUIRED';
+    message = error.message;
+    retryable = false;
+  } else if (error instanceof PlatformAccessTokenError) {
+    status = 401;
+    code = 'AUTHENTICATION_REQUIRED';
+    message = error.message;
+    retryable = false;
+  } else if (error instanceof PlatformAuthorizationError) {
+    status = 403;
+    code = 'AUTHORIZATION_DENIED';
     message = error.message;
     retryable = false;
   } else if (error instanceof AgentEnrollmentStateError || error instanceof IdentityConflictError) {

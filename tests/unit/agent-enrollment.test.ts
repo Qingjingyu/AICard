@@ -5,12 +5,20 @@ import { describe, expect, it } from 'vitest';
 import {
   agentClaimPayload,
   buildAgentEnrollmentInstructions,
+  createAgentInvitationSchema,
   nodeRuntimeAuthenticationPayload,
   normalizeMachineName,
   verifyAgentSignature,
 } from '@/domain/identity/agent-enrollment';
 
 describe('Agent enrollment protocol', () => {
+  it('accepts a Chinese display name without asking the owner to invent a handle', () => {
+    expect(createAgentInvitationSchema.parse({ displayName: '悠悠助理' })).toEqual({
+      displayName: '悠悠助理',
+      clientId: 'yoyoo_dev',
+    });
+  });
+
   it('keeps Chinese display names while deriving a safe stable machine name', () => {
     expect(normalizeMachineName('悠悠 助理', 'yoyoo_assistant')).toBe('yoyoo_assistant');
     expect(normalizeMachineName('Research Agent 01', 'fallback')).toBe('research-agent-01');
@@ -47,7 +55,6 @@ describe('Agent enrollment protocol', () => {
   it('builds a complete instruction instead of exposing a context-free ticket', () => {
     const instruction = buildAgentEnrollmentInstructions({
       displayName: '悠悠',
-      cardId: 'AI_100001',
       invitationId: '019f78ba-6ea8-7e85-bdaf-05b5fe7aa0a1',
       serviceUrl: 'https://id.example.com',
       ticket: 'A'.repeat(43),
@@ -57,6 +64,8 @@ describe('Agent enrollment protocol', () => {
 
     expect(instruction).toContain('请将当前 Agent 接入 AI Card');
     expect(instruction).toContain('昵称：悠悠');
+    expect(instruction).toContain('成功认领后自动颁发');
+    expect(instruction).not.toContain('AI Card ID：AI_');
     expect(instruction).toContain('服务地址：https://id.example.com');
     expect(instruction).toContain(`邀请票据：${'A'.repeat(43)}`);
     expect(instruction).toContain('在本机生成 Ed25519 密钥对');

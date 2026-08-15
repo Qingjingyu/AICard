@@ -15,7 +15,7 @@ import {
   normalizeMachineName,
   verifyAgentSignature,
 } from '@/domain/identity/agent-enrollment';
-import { createPrincipalId } from '@/domain/identity/ids';
+import { createPairwiseSubject, createPrincipalId } from '@/domain/identity/ids';
 import { principalIdSchema } from '@/domain/identity/schemas';
 import { createOpaqueToken, hashOpaqueToken } from '@/server/authentication/auth-security';
 import {
@@ -29,6 +29,10 @@ const INVITATION_TTL_MS = 15 * 60 * 1_000;
 const NODE_CHALLENGE_TTL_MS = 2 * 60 * 1_000;
 const RUNTIME_TOKEN_TTL_MS = 2 * 60 * 1_000;
 const runtimeTokenSchema = z.string().regex(/^at_[A-Za-z0-9_-]{43}$/);
+const declineInvitationSchema = z.object({
+  invitationId: z.uuid(),
+  ticket: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+}).strict();
 
 export class AgentEnrollmentService {
   constructor(
@@ -42,22 +46,32 @@ export class AgentEnrollmentService {
     const invitationId = createPrincipalId();
     const ticket = createOpaqueToken();
     const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
-    const card = await this.repository.createInvitation({
+    const created = await this.repository.createInvitation({
       controllerPrincipalId,
       ...parsed,
       invitationId,
       ticketHash: hashOpaqueToken(ticket),
       expiresAt,
     });
-    const recommendedMachineName = normalizeMachineName(card.card.displayName, card.card.handle);
+    const recommendedMachineName = normalizeMachineName(
+      created.identity.displayName,
+      created.identity.handle ?? 'agent',
+    );
     return {
       invitationId,
       ticket,
       expiresAt,
-      card: card.card,
+      identity: created.identity,
+      claim: {
+        serviceUrl: this.config.serviceUrl,
+        invitationId,
+        ticket,
+        machineName: recommendedMachineName,
+        clientId: parsed.clientId,
+      },
       instructions: buildAgentEnrollmentInstructions({
-        displayName: card.card.displayName,
-        cardId: card.card.cardId,
+        displayName: created.identity.displayName,
+        cardId: created.identity.cardId,
         invitationId,
         serviceUrl: this.config.serviceUrl,
         ticket,
@@ -86,6 +100,8 @@ export class AgentEnrollmentService {
       nodeId: createPrincipalId(),
       machineName: parsed.machineName,
       publicKeySpki: Buffer.from(parsed.publicKey, 'base64url'),
+      grantId: createPrincipalId(),
+      subjectCandidate: createPairwiseSubject(),
     });
   }
 
@@ -94,6 +110,14 @@ export class AgentEnrollmentService {
     const result = await this.repository.getClaimStatus(parsed.claimId, hashOpaqueToken(parsed.claimSecret));
     if (!result) throw new AgentEnrollmentStateError('Claim could not be recovered');
     return result;
+  }
+
+  async declineInvitation(input: unknown): Promise<void> {
+    const parsed = declineInvitationSchema.parse(input);
+    await this.repository.declineInvitation(
+      parsed.invitationId,
+      hashOpaqueToken(parsed.ticket),
+    );
   }
 
   async createNodeChallenge(nodeId: string) {
