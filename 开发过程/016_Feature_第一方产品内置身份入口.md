@@ -11,6 +11,7 @@ Yoyoo 需要把 AI Card 呈现为内置统一身份，而不是要求用户跳�
 - 登录或注册后返回公开 Card 投影和非秘密 CSRF Token；会话仍使用 AI Card 域下的 host-only Cookie。
 - 授权继续使用原有 Authorization Code + S256 PKCE + state；未改数据库和 Token 模型。
 - 登录、注册、授权三个端点共享凭据型 CORS 策略，未知来源在读取会话前被拒绝。
+- 密码统一接受 8 至 128 个字符且禁止首尾空格；保持现有 scrypt 参数与凭据格式，不迁移或重写旧凭据。
 
 ## 否掉的备选
 
@@ -27,6 +28,7 @@ Yoyoo 需要把 AI Card 呈现为内置统一身份，而不是要求用户跳�
 - 双服务生产构建浏览器验收通过：Yoyoo 同页创建 `AI_100001`、自动授权进入、第二浏览器再次登录、YOS Agent 认领与运行时传输均成功。
 - 浏览器请求断言确认包含密码的注册与登录请求各发送一次，且目的地仅为精确 AI Card Origin。
 - `npm run typecheck`、`npm run lint` 与 `npm run build` 通过。
+- 2026-08-15 边界回归确认 8 位密码可创建凭据、7 位被拒绝，入口的浏览器约束与服务端一致；全量 101 个单测通过。
 - 2026-08-15 以 `aicard:11bb31f` 发布到 `id.yoyooai.com`；production doctor、双站健康、精确来源 CORS 204 和未知来源 403 均通过。
 - 发布前备份位于 `/opt/yoyoo/backups/embedded-aicard-entry-20260814T152735Z`，数据库 dump、Blob/Nginx 归档和 SHA-256 均已校验；旧镜像保留用于应用级回滚。
 - 生产未创建测试 Card；真实公网持卡人首次注册和独立安全审查仍未完成。
