@@ -7,7 +7,7 @@ const HASH_BYTES = 64;
 const SCRYPT_OPTIONS = { N: 32_768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
 
 export const passwordSchema = z.string()
-  .min(12, 'password must contain at least 12 characters')
+  .min(8, 'password must contain at least 8 characters')
   .max(128, 'password must contain at most 128 characters')
   .refine((password) => password === password.trim(), 'password cannot start or end with spaces');
 

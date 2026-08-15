@@ -9,8 +9,9 @@ import {
 describe('password security', () => {
   it('accepts a strong passphrase and rejects ambiguous boundary input', () => {
     expect(passwordSchema.safeParse('correct horse 电池 staple').success).toBe(true);
-    expect(passwordSchema.safeParse('short').success).toBe(false);
-    expect(passwordSchema.safeParse(` ${'a'.repeat(12)}`).success).toBe(false);
+    expect(passwordSchema.safeParse('12345678').success).toBe(true);
+    expect(passwordSchema.safeParse('1234567').success).toBe(false);
+    expect(passwordSchema.safeParse(` ${'a'.repeat(8)}`).success).toBe(false);
     expect(passwordSchema.safeParse('a'.repeat(129)).success).toBe(false);
   });
 
