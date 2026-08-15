@@ -2,7 +2,7 @@
 
 AI Card 是面向人类与 AI 的独立身份、鉴权和授权基础设施。Yoyoo 是第一个客户端，但不拥有 AI Card 身份。
 
-当前状态：v0.2 Phase 8F 已部署到 `id.yoyooai.com` 并完成公网自验。Yoyoo 可在自身页面内登录或创建 AI Card，密码由浏览器直送 AI Card，产品只保留标准授权结果。首次真实注册仍会原子签发 `AI_100001`；截至发布验收尚未创建测试 Card。真实持卡人首次注册、账号恢复、真实硬件 Passkey 和第三方独立安全审查仍未完成。
+当前状态：v0.2 Phase 8F 已部署到 `id.yoyooai.com` 并完成公网自验。Phase 8G 的一段话 Agent 接入已在本地实现并通过全量门禁，但尚未部署。Yoyoo 可在自身页面内登录或创建 AI Card；Agent 可由产品内的受控邀请在成功认领时获得新 Card，或证明本机节点后复用已有 Card。真实硬件 Passkey、账号恢复和第三方独立安全审查仍未完成。
 
 ## Requirements
 
@@ -83,7 +83,7 @@ Phase 2 提供以下内部能力：
 
 - 首页支持中文昵称、唯一 `@handle` 和密码创建人类 Card；成功后立即进入当前 Card，不再要求另行注册或绑定。
 - 登录接受 `AI_100001` 形式的永久编号或 `@handle`；未知账号、错误密码和已停用凭据返回同一公开错误。
-- 密码最少 12 个字符，数据库只保存随机 16-byte salt 和 `scrypt` 64-byte 派生值，不保存明文或可逆凭据。
+- 密码最少 8 个字符，数据库只保存随机 16-byte salt 和 `scrypt` 64-byte 派生值，不保存明文或可逆凭据。
 - 统一注册要求预注册客户端和 32-128 位 Base64URL 幂等键；重试只在资料和原密码同时一致时恢复同一身份。
 - 注册和登录均受精确 Origin、限流、会话轮换和安全审计保护。
 - Passkey 作为可选增强认证：密码注册用户可在私有 Card 背面添加首个 Passkey。
@@ -95,12 +95,14 @@ Phase 2 提供以下内部能力：
 
 ## Agent Enrollment And Node Identity
 
-- 私有 Card 背面的“AI 身份”支持中文昵称、唯一 `@handle` 和完整接入指令。
-- 创建邀请时即创建永久 AI Card；15 分钟邀请票据只显示一次，数据库只保存 SHA-256 哈希。
+- 产品可以在已验证的人类控制者授权下使用 `agent.enroll` 创建或撤销 15 分钟单次邀请；展示名支持中文，系统 Handle 和机器名由服务端稳定生成。
+- 通用邀请创建时不占用 Card 编号。只有成功认领才在同一事务中创建永久 AI Card、控制关系和运行节点；未使用、过期、拒绝或撤销的邀请不产生身份。
 - Agent 在本机生成 Ed25519 密钥、UUIDv7 认领 ID 和随机查询秘密；私钥不上传。
 - 认领使用签名证明私钥持有；响应未知时使用认领 ID 与查询秘密恢复同一结果，不重复创建身份。
-- 同一 AI Card 可以追加多个独立节点；待认领邀请和运行节点都可以单独撤销。
+- 已有 Agent 使用原节点私钥证明身份并复用同一 AI Card；产品为其预建但未使用的新身份邀请会被显式拒绝，不会产生第二张 Card。
+- 同一 AI Card 可以追加多个独立节点；待认领邀请、运行节点和产品侧访问都可以分别撤销。
 - 节点认证使用 2 分钟一次性 challenge；撤销后新的 challenge 和认证都会被拒绝。
+- 运行时自省返回权威 Card ID、展示名、Handle 和机器名，产品不根据自然语言猜测身份。
 
 仓库中的 `scripts/agent-enrollment-reference.mts` 是协议测试客户端。它从标准输入读取邀请 JSON，避免票据出现在命令行参数和进程列表；`--output` 指定的新文件以 `0600` 权限保存节点私钥、认领查询秘密和公钥。不要把该输出提交到仓库或发送给其他人。
 
@@ -135,7 +137,7 @@ Card ID，服务端解析内部 Principal 并在签发授权码的事务中再�
 Refresh 使用同一 token endpoint，提交 `grant_type=refresh_token`、`client_id` 和 `refresh_token`，每次必须使用新的 `Idempotency-Key`。同一请求和 key 可恢复相同响应；已消费 refresh token 被不同 key 重放时，整个 token family 会被撤销。随后以 `Authorization: Bearer at_...` 调用 `GET /api/v1/userinfo`，只会得到已批准 scope 覆盖的 Card 字段和该平台专属 `sub`。
 
 - redirect URI 逐字匹配，不支持 wildcard。
-- scopes 为 `card.basic`、`card.handle`、`card.id`、`offline_access` 和 `agent.runtime`；只有 `yoyoo_dev` 允许请求后两项，`agent.runtime` 只用于 AI 身份运行节点。
+- scopes 为 `card.basic`、`card.handle`、`card.id`、`offline_access`、`agent.enroll` 和 `agent.runtime`。`agent.enroll` 只代表已验证人类为受控 Agent 创建或撤销邀请的权限；`agent.runtime` 只用于 Agent 节点运行，二者不能互相替代。
 - 授权码、access token 和 refresh token 明文只出现在协议响应中，数据库只保存 SHA-256 摘要；幂等恢复响应使用 AES-256-GCM 密文保存。
 - 持卡人可在私有 Card 背面按身份查看本人和当前受控 AI 的平台授权；撤销要求有效会话、精确 Origin、CSRF 证明和 5 分钟内 Passkey 验证，并立即使关联 access/refresh token 失效。浏览器只提交 Grant ID，服务端依据实时控制关系判断管理权限。
 - 当前不支持第三方动态客户端注册或完整 OAuth/OIDC Provider。
@@ -206,6 +208,7 @@ Token 明文不写入数据库，不提供 refresh token。
 | `npm test` | Vitest 单元测试 |
 | `npm run test:integration` | 自动启动隔离 PostgreSQL、迁移、测试并清理 |
 | `npm run test:e2e` | Playwright 桌面与移动端四态、密码账号、公开 Card、虚拟 Passkey、Agent 认领、平台授权与跨产品回归；默认使用专用端口 `4280/4281`，不复用既有服务 |
+| `npm run test:federation:yoyoo` | 启动隔离的 AI Card 与 Yoyoo，验证人类注册、新 Agent 发卡、已有 Card 复用和精确房间消息闭环 |
 | `npm run platform:register -- <client.json>` | 受控登记旗下产品客户端，重试幂等、配置漂移默认拒绝 |
 | `npm run production:doctor` | 只读检查生产身份权威配置、migration ledger 和 Yoyoo client 合同 |
 | `npm run verify` | 顺序执行全部门禁 |
