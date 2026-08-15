@@ -1,13 +1,11 @@
 import type { Pool, PoolClient } from 'pg';
 
 import { createPrincipalId } from '@/domain/identity/ids';
-import type { IdentityRecord } from '@/domain/identity/types';
 import { AgentEnrollmentStateError } from '@/server/agent-enrollment-errors';
 import {
   PlatformAccessTokenError,
   PlatformAuthorizationError,
 } from '@/server/authorization/errors';
-import { IdentityConflictError } from '@/server/identity-errors';
 
 export type AgentConnectionStatus = 'connected' | 'offline' | 'revoked';
 
@@ -22,9 +20,9 @@ export type AgentNodeResult = {
 
 export type ManagedAgent = {
   invitationId: string;
-  cardId: string;
+  cardId: string | null;
   displayName: string;
-  handle: string;
+  handle: string | null;
   invitationStatus: 'pending' | 'claimed' | 'expired' | 'revoked';
   expiresAt: Date;
   nodeId: string | null;
@@ -37,10 +35,14 @@ export type AgentRuntimeSession = {
   active: true;
   subject: string;
   nodeId: string;
+  machineName: string;
   clientId: string;
   audience: string;
   scope: 'agent.runtime';
   expiresAt: Date;
+  cardId: string;
+  displayName: string;
+  handle: string;
 };
 
 function connectionStatus(row: { node_status: 'active' | 'revoked'; online_until: Date | null }): AgentConnectionStatus {
@@ -71,26 +73,25 @@ export class PostgresAgentEnrollmentRepository {
   async createInvitation(input: {
     controllerPrincipalId: string;
     displayName?: string;
-    handle?: string;
     cardId?: string;
+    clientId: string;
     invitationId: string;
     ticketHash: Buffer;
     expiresAt: Date;
-  }): Promise<{ card: IdentityRecord; createdAt: Date }> {
+  }): Promise<{
+    identity: { displayName: string; cardId: string | null; handle: string | null };
+    createdAt: Date;
+  }> {
     const client = await this.pool.connect();
-    let principalId = createPrincipalId();
-    let cardId: string;
+    let cardId: string | null = null;
     let displayName = input.displayName;
-    let handle = input.handle;
-    let createdAt: Date;
-    let updatedAt: Date;
+    let handle: string | null = null;
     try {
       await client.query('begin');
       await requireActiveHuman(client, input.controllerPrincipalId);
       if (input.cardId) {
         const existing = await client.query<{
-          principal_id: string; card_id: string; display_name: string; handle: string;
-          created_at: Date; updated_at: Date;
+          card_id: string; display_name: string; handle: string;
         }>(
           `select c.principal_id, c.card_id, c.display_name, h.handle, c.created_at, c.updated_at
            from ai_cards c
@@ -104,69 +105,60 @@ export class PostgresAgentEnrollmentRepository {
         );
         const row = existing.rows[0];
         if (!row) throw new AgentEnrollmentStateError('AI Card is not managed by this controller');
-        principalId = row.principal_id;
         cardId = row.card_id;
         displayName = row.display_name;
         handle = row.handle;
-        createdAt = row.created_at;
-        updatedAt = row.updated_at;
       } else {
-        if (!displayName || !handle) throw new AgentEnrollmentStateError('AI Card identity is required');
-        await client.query('insert into principals (principal_id, principal_type) values ($1, $2)', [principalId, 'ai']);
-        const cardResult = await client.query<{
-          card_id: string;
-          created_at: Date;
-          updated_at: Date;
-        }>(
-          `insert into ai_cards (principal_id, display_name)
-           values ($1, $2) returning card_id, created_at, updated_at`,
-          [principalId, displayName],
-        );
-        const row = cardResult.rows[0];
-        if (!row) throw new Error('AI Card insert did not return timestamps');
-        cardId = row.card_id;
-        createdAt = row.created_at;
-        updatedAt = row.updated_at;
-        await client.query('insert into card_handles (handle, card_id) values ($1, $2)', [handle, cardId]);
-        await client.query(
-          `insert into principal_controllers (controlled_principal_id, controller_principal_id)
-           values ($1, $2)`,
-          [principalId, input.controllerPrincipalId],
-        );
+        if (!displayName) throw new AgentEnrollmentStateError('Agent display name is required');
       }
       const invitationResult = await client.query<{ created_at: Date }>(
         `insert into agent_invitations
-           (invitation_id, card_id, controller_principal_id, ticket_hash, expires_at)
-         values ($1, $2, $3, $4, $5) returning created_at`,
-        [input.invitationId, cardId, input.controllerPrincipalId, input.ticketHash, input.expiresAt],
+           (invitation_id, card_id, display_name, client_id,
+            controller_principal_id, ticket_hash, expires_at)
+         select $1, $2, $3, clients.client_id, $5, $6, $7
+         from platform_clients clients
+         join platform_client_scopes runtime_scope
+           on runtime_scope.client_id = clients.client_id
+          and runtime_scope.scope = 'agent.runtime'
+         where clients.client_id = $4 and clients.status = 'active'
+         returning created_at`,
+        [
+          input.invitationId,
+          cardId,
+          displayName,
+          input.clientId,
+          input.controllerPrincipalId,
+          input.ticketHash,
+          input.expiresAt,
+        ],
       );
+      if (!invitationResult.rowCount) {
+        throw new AgentEnrollmentStateError('Target platform cannot accept Agent runtime access');
+      }
       await client.query(
         `insert into security_audit_events
            (event_id, event_type, actor_principal_id, target_type, target_id, result, metadata)
          values ($1, 'agent.invitation.created', $2, 'agent_invitation', $3, 'succeeded', $4)`,
-        [createPrincipalId(), input.controllerPrincipalId, input.invitationId, JSON.stringify({ card_id: cardId })],
+        [
+          createPrincipalId(),
+          input.controllerPrincipalId,
+          input.invitationId,
+          JSON.stringify({ card_id: cardId, client_id: input.clientId }),
+        ],
       );
       await client.query('commit');
       const invitation = invitationResult.rows[0];
-      if (!invitation || !displayName || !handle) throw new Error('Invitation insert did not return identity data');
+      if (!invitation || !displayName) throw new Error('Invitation insert did not return identity data');
       return {
-        card: {
-          principalId,
-          principalType: 'ai',
+        identity: {
           cardId,
           handle,
           displayName,
-          avatarUrl: null,
-          bio: null,
-          status: 'active',
-          createdAt,
-          updatedAt,
         },
         createdAt: invitation.created_at,
       };
     } catch (error) {
       await client.query('rollback');
-      if (isUniqueViolation(error)) throw new IdentityConflictError('Handle is already reserved');
       throw error;
     } finally {
       client.release();
@@ -181,6 +173,8 @@ export class PostgresAgentEnrollmentRepository {
     nodeId: string;
     machineName: string;
     publicKeySpki: Buffer;
+    grantId: string;
+    subjectCandidate: string;
   }): Promise<AgentNodeResult> {
     const client = await this.pool.connect();
     try {
@@ -213,21 +207,21 @@ export class PostgresAgentEnrollmentRepository {
       if (sameClaim.rowCount) throw new AgentEnrollmentStateError('Claim could not be recovered');
 
       const invitationResult = await client.query<{
-        card_id: string; principal_id: string; display_name: string; status: string;
-        expires_at: Date; card_status: string; controller_active: boolean;
+        card_id: string | null; principal_id: string | null; display_name: string;
+        status: string; expires_at: Date; card_status: string | null;
+        controller_principal_id: string; client_id: string; controller_active: boolean;
       }>(
-        `select i.card_id, c.principal_id, c.display_name, i.status, i.expires_at,
+        `select i.card_id, c.principal_id, i.display_name, i.status, i.expires_at,
                 c.status as card_status,
+                i.controller_principal_id, i.client_id,
                 exists (
-                  select 1 from principal_controllers pc
-                  join principals hp on hp.principal_id = pc.controller_principal_id
+                  select 1 from principals hp
                   join ai_cards hc on hc.principal_id = hp.principal_id
-                  where pc.controlled_principal_id = c.principal_id
-                    and pc.controller_principal_id = i.controller_principal_id
-                    and pc.revoked_at is null and hp.principal_type = 'human' and hc.status = 'active'
+                  where hp.principal_id = i.controller_principal_id
+                    and hp.principal_type = 'human' and hc.status = 'active'
                 ) as controller_active
          from agent_invitations i
-         join ai_cards c on c.card_id = i.card_id
+         left join ai_cards c on c.card_id = i.card_id
          where i.invitation_id = $1 and i.ticket_hash = $2
          for update of i`,
         [input.invitationId, input.ticketHash],
@@ -236,15 +230,58 @@ export class PostgresAgentEnrollmentRepository {
       if (!invitation) throw new AgentEnrollmentStateError('Invitation is invalid');
       if (invitation.status !== 'pending') throw new AgentEnrollmentStateError('Invitation is no longer available');
       if (invitation.expires_at.getTime() <= Date.now()) throw new AgentEnrollmentStateError('Invitation has expired');
-      if (invitation.card_status !== 'active' || !invitation.controller_active) {
+      if ((invitation.card_id && invitation.card_status !== 'active') || !invitation.controller_active) {
         throw new AgentEnrollmentStateError('AI Card or its controller is not active');
       }
+
+      let principalId = invitation.principal_id;
+      let cardId = invitation.card_id;
+      if (!principalId || !cardId) {
+        principalId = createPrincipalId();
+        await client.query(
+          'insert into principals (principal_id, principal_type) values ($1, $2)',
+          [principalId, 'ai'],
+        );
+        const cardResult = await client.query<{ card_id: string }>(
+          `insert into ai_cards (principal_id, display_name)
+           values ($1, $2) returning card_id`,
+          [principalId, invitation.display_name],
+        );
+        cardId = cardResult.rows[0]?.card_id ?? null;
+        if (!cardId) throw new Error('AI Card allocation did not return an ID');
+        const handle = cardId.toLowerCase();
+        await client.query(
+          'insert into card_handles (handle, card_id) values ($1, $2)',
+          [handle, cardId],
+        );
+        await client.query(
+          `insert into principal_controllers
+             (controlled_principal_id, controller_principal_id)
+           values ($1, $2)`,
+          [principalId, invitation.controller_principal_id],
+        );
+      }
+
+      await client.query(
+        `insert into platform_subjects (client_id, principal_id, subject)
+         values ($1, $2, $3)
+         on conflict (client_id, principal_id) do nothing`,
+        [invitation.client_id, principalId, input.subjectCandidate],
+      );
+      await client.query(
+        `insert into platform_grants (grant_id, client_id, principal_id, scopes)
+         values ($1, $2, $3, array['agent.runtime']::text[])
+         on conflict (client_id, principal_id) do update
+           set scopes = array['agent.runtime']::text[], status = 'active',
+               revoked_at = null, updated_at = now()`,
+        [input.grantId, invitation.client_id, principalId],
+      );
 
       await client.query(
         `insert into agent_nodes
            (node_id, principal_id, machine_name, public_key_spki, last_authenticated_at, online_until)
          values ($1, $2, $3, $4, now(), now() + interval '2 minutes')`,
-        [input.nodeId, invitation.principal_id, input.machineName, input.publicKeySpki],
+        [input.nodeId, principalId, input.machineName, input.publicKeySpki],
       );
       await client.query(
         `insert into agent_claims (claim_id, invitation_id, node_id, claim_secret_hash)
@@ -252,20 +289,21 @@ export class PostgresAgentEnrollmentRepository {
         [input.claimId, input.invitationId, input.nodeId, input.claimSecretHash],
       );
       await client.query(
-        `update agent_invitations set status = 'claimed', claimed_at = now()
+        `update agent_invitations
+         set card_id = $2, status = 'claimed', claimed_at = now()
          where invitation_id = $1`,
-        [input.invitationId],
+        [input.invitationId, cardId],
       );
       await client.query(
         `insert into security_audit_events
            (event_id, event_type, target_type, target_id, result, metadata)
          values ($1, 'agent.node.claimed', 'agent_node', $2, 'succeeded', $3)`,
-        [createPrincipalId(), input.nodeId, JSON.stringify({ card_id: invitation.card_id, claim_id: input.claimId })],
+        [createPrincipalId(), input.nodeId, JSON.stringify({ card_id: cardId, claim_id: input.claimId })],
       );
       await client.query('commit');
       return {
         nodeId: input.nodeId,
-        cardId: invitation.card_id,
+        cardId,
         displayName: invitation.display_name,
         machineName: input.machineName,
         claimStatus: 'claimed',
@@ -410,6 +448,23 @@ export class PostgresAgentEnrollmentRepository {
       );
       const row = result.rows[0];
       if (!row) throw new PlatformAuthorizationError('Agent runtime access is not authorized');
+      const identityResult = await client.query<{
+        card_id: string;
+        display_name: string;
+        handle: string;
+        machine_name: string;
+      }>(
+        `select cards.card_id, cards.display_name, handles.handle, nodes.machine_name
+         from agent_nodes nodes
+         join ai_cards cards on cards.principal_id = nodes.principal_id
+           and cards.status = 'active'
+         join card_handles handles on handles.card_id = cards.card_id
+           and handles.is_current
+         where nodes.node_id = $1 and nodes.status = 'active'`,
+        [input.nodeId],
+      );
+      const identity = identityResult.rows[0];
+      if (!identity) throw new PlatformAuthorizationError('Agent identity is not active');
       await client.query(
         `insert into security_audit_events
            (event_id, event_type, target_type, target_id, result, metadata)
@@ -424,8 +479,12 @@ export class PostgresAgentEnrollmentRepository {
       return {
         subject: row.subject,
         nodeId: row.node_id,
+        machineName: identity.machine_name,
         clientId: row.client_id,
         audience: row.audience,
+        cardId: identity.card_id,
+        displayName: identity.display_name,
+        handle: identity.handle,
       };
     } catch (error) {
       await client.query('rollback').catch(() => undefined);
@@ -439,12 +498,17 @@ export class PostgresAgentEnrollmentRepository {
     const result = await this.pool.query<{
       subject: string;
       node_id: string;
+      machine_name: string;
       client_id: string;
       audience: string;
       expires_at: Date;
+      card_id: string;
+      display_name: string;
+      handle: string;
     }>(
-      `select tokens.subject, tokens.node_id, tokens.client_id,
-              tokens.audience, tokens.expires_at
+      `select tokens.subject, tokens.node_id, nodes.machine_name, tokens.client_id,
+              tokens.audience, tokens.expires_at,
+              cards.card_id, cards.display_name, handles.handle
        from agent_runtime_tokens tokens
        join agent_nodes nodes on nodes.node_id = tokens.node_id
          and nodes.status = 'active'
@@ -452,6 +516,8 @@ export class PostgresAgentEnrollmentRepository {
          and principals.principal_type = 'ai'
        join ai_cards cards on cards.principal_id = nodes.principal_id
          and cards.status = 'active'
+       join card_handles handles on handles.card_id = cards.card_id
+         and handles.is_current
        join platform_grants grants on grants.grant_id = tokens.grant_id
          and grants.client_id = tokens.client_id
          and grants.principal_id = nodes.principal_id
@@ -484,10 +550,14 @@ export class PostgresAgentEnrollmentRepository {
       active: true,
       subject: row.subject,
       nodeId: row.node_id,
+      machineName: row.machine_name,
       clientId: row.client_id,
       audience: row.audience,
       scope: 'agent.runtime',
       expiresAt: row.expires_at,
+      cardId: row.card_id,
+      displayName: row.display_name,
+      handle: row.handle,
     };
   }
 
@@ -528,9 +598,33 @@ export class PostgresAgentEnrollmentRepository {
     if (result.rowCount !== 1) throw new AgentEnrollmentStateError('Invitation cannot be revoked');
   }
 
+  async declineInvitation(invitationId: string, ticketHash: Buffer): Promise<void> {
+    const result = await this.pool.query(
+      `with changed as (
+         update agent_invitations
+         set status = 'revoked', revoked_at = now()
+         where invitation_id = $1 and ticket_hash = $2 and status = 'pending'
+         returning invitation_id, controller_principal_id
+       )
+       insert into security_audit_events
+         (event_id, event_type, actor_principal_id, target_type, target_id, result)
+       select $3, 'agent.invitation.declined', controller_principal_id,
+              'agent_invitation', invitation_id::text, 'succeeded'
+       from changed`,
+      [invitationId, ticketHash, createPrincipalId()],
+    );
+    if (result.rowCount === 1) return;
+    const replay = await this.pool.query(
+      `select 1 from agent_invitations
+       where invitation_id = $1 and ticket_hash = $2 and status = 'revoked'`,
+      [invitationId, ticketHash],
+    );
+    if (replay.rowCount !== 1) throw new AgentEnrollmentStateError('Invitation cannot be declined');
+  }
+
   async listManagedAgents(controllerPrincipalId: string): Promise<ManagedAgent[]> {
     const result = await this.pool.query<{
-      invitation_id: string; card_id: string; display_name: string; handle: string;
+      invitation_id: string; card_id: string | null; display_name: string; handle: string | null;
       invitation_status: 'pending' | 'claimed' | 'revoked'; expires_at: Date;
       node_id: string | null; machine_name: string | null;
       node_status: 'active' | 'revoked' | null; online_until: Date | null;
@@ -541,8 +635,8 @@ export class PostgresAgentEnrollmentRepository {
               n.node_id, n.machine_name, n.status as node_status,
               n.online_until, n.last_authenticated_at
        from agent_invitations i
-       join ai_cards c on c.card_id = i.card_id
-       join card_handles h on h.card_id = c.card_id and h.is_current
+       left join ai_cards c on c.card_id = i.card_id
+       left join card_handles h on h.card_id = c.card_id and h.is_current
        left join agent_claims ac on ac.invitation_id = i.invitation_id
        left join agent_nodes n on n.node_id = ac.node_id
        where i.controller_principal_id = $1

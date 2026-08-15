@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { runMigrations } from '../../infra/postgres/migration-runner';
-import { createS256CodeChallenge } from '@/domain/authorization/scopes';
 import {
   agentClaimPayload,
   nodeAuthenticationPayload,
@@ -56,34 +55,6 @@ async function createController() {
   });
 }
 
-async function authorizeRuntime(controllerPrincipalId: string, agentPrincipalId: string) {
-  const verifier = createOpaqueToken();
-  const request = {
-    responseType: 'code',
-    clientId: 'yoyoo_dev',
-    redirectUri: 'http://localhost:4173/auth/aicard/callback',
-    scope: 'card.basic agent.runtime',
-    state: createOpaqueToken(),
-    codeChallenge: createS256CodeChallenge(verifier),
-    codeChallengeMethod: 'S256',
-    principalType: 'ai',
-  };
-  const approval = await authorizations.resolveConsent({
-    principalId: controllerPrincipalId,
-    subjectPrincipalId: agentPrincipalId,
-    decision: 'approve',
-    request,
-  });
-  await authorizations.exchangeAuthorizationCode({
-    grantType: 'authorization_code',
-    clientId: request.clientId,
-    redirectUri: request.redirectUri,
-    code: approval.code!,
-    codeVerifier: verifier,
-    idempotencyKey: createOpaqueToken(),
-  });
-}
-
 function signedClaim(input: {
   invitationId: string;
   ticket: string;
@@ -118,29 +89,58 @@ function signedClaim(input: {
 }
 
 describe('Agent enrollment service', () => {
-  it('creates an AI Card and returns a complete one-time invitation while storing only its hash', async () => {
+  it('creates a one-time invitation without consuming an AI Card number', async () => {
     const controller = await createController();
+    const before = await pool.query<{ cards: string; principals: string }>(
+      `select
+         (select count(*) from ai_cards)::text as cards,
+         (select count(*) from principals)::text as principals`,
+    );
     const invitation = await service.createInvitation(controller.principalId, {
       displayName: '悠悠助理',
-      handle: `yoyoo_${Date.now().toString(36)}`,
+      clientId: 'yoyoo_dev',
     });
 
-    expect(invitation.card.displayName).toBe('悠悠助理');
+    expect(invitation.identity).toEqual({
+      displayName: '悠悠助理',
+      cardId: null,
+      handle: null,
+    });
+    expect(invitation.claim).toMatchObject({
+      serviceUrl: 'http://localhost:3000',
+      invitationId: invitation.invitationId,
+      ticket: invitation.ticket,
+      clientId: 'yoyoo_dev',
+    });
     expect(invitation.ticket).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(invitation.instructions).toContain('请将当前 Agent 接入 AI Card');
-    const stored = await pool.query<{ ticket_hash: Buffer }>(
-      'select ticket_hash from agent_invitations where invitation_id = $1',
+    const stored = await pool.query<{
+      ticket_hash: Buffer; display_name: string; card_id: string | null; client_id: string;
+    }>(
+      `select ticket_hash, display_name, card_id, client_id
+       from agent_invitations where invitation_id = $1`,
       [invitation.invitationId],
     );
     expect(stored.rows[0]?.ticket_hash.equals(hashOpaqueToken(invitation.ticket))).toBe(true);
+    expect(stored.rows[0]).toMatchObject({
+      display_name: '悠悠助理',
+      card_id: null,
+      client_id: 'yoyoo_dev',
+    });
     expect(JSON.stringify(stored.rows)).not.toContain(invitation.ticket);
+    const after = await pool.query<{ cards: string; principals: string }>(
+      `select
+         (select count(*) from ai_cards)::text as cards,
+         (select count(*) from principals)::text as principals`,
+    );
+    expect(after.rows[0]).toEqual(before.rows[0]);
   });
 
   it('claims once with proof of key possession and safely recovers the same result', async () => {
     const controller = await createController();
     const invitation = await service.createInvitation(controller.principalId, {
       displayName: '研究助理',
-      handle: `research_${Date.now().toString(36)}`,
+      clientId: 'yoyoo_dev',
     });
     const claim = signedClaim(invitation);
 
@@ -152,7 +152,7 @@ describe('Agent enrollment service', () => {
     });
 
     expect(first).toMatchObject({
-      cardId: invitation.card.cardId,
+      cardId: expect.stringMatching(/^AI_[1-9][0-9]{5,}$/),
       machineName: 'yoyoo-agent',
       claimStatus: 'claimed',
       connectionStatus: 'connected',
@@ -161,6 +161,13 @@ describe('Agent enrollment service', () => {
     expect(recovered.nodeId).toBe(first.nodeId);
     expect((await pool.query('select node_id from agent_nodes')).rowCount).toBe(1);
     expect((await pool.query('select claim_id from agent_claims')).rowCount).toBe(1);
+    expect((await pool.query(
+      `select grant_id from platform_grants
+       where principal_id = (select principal_id from ai_cards where card_id = $1)
+         and client_id = 'yoyoo_dev' and status = 'active'
+         and scopes = array['agent.runtime']::text[]`,
+      [first.cardId],
+    )).rowCount).toBe(1);
 
     await expect(service.getClaimStatus({
       claimId: claim.request.claimId,
@@ -226,7 +233,6 @@ describe('Agent enrollment service', () => {
     });
     const claim = signedClaim(invitation);
     const enrolled = await service.claim(claim.request);
-    await authorizeRuntime(controller.principalId, invitation.card.principalId);
     const challenge = await service.createNodeChallenge(enrolled.nodeId);
     const signature = sign(
       null,
@@ -282,7 +288,11 @@ describe('Agent enrollment service', () => {
     });
     const claim = signedClaim(invitation);
     const enrolled = await service.claim(claim.request);
-    await authorizeRuntime(controller.principalId, invitation.card.principalId);
+    const agentIdentity = await pool.query<{ principal_id: string }>(
+      'select principal_id from ai_cards where card_id = $1',
+      [enrolled.cardId],
+    );
+    const agentPrincipalId = agentIdentity.rows[0]!.principal_id;
     const challenge = await service.createNodeChallenge(enrolled.nodeId);
     const signature = sign(
       null,
@@ -300,11 +310,11 @@ describe('Agent enrollment service', () => {
       challenge: challenge.challenge,
       signature,
     });
-    const grants = await authorizations.listGrants(invitation.card.principalId);
+    const grants = await authorizations.listGrants(agentPrincipalId);
 
     expect(grants).toHaveLength(1);
     await authorizations.revokeGrant({
-      principalId: invitation.card.principalId,
+      principalId: agentPrincipalId,
       grantId: grants[0]!.grantId,
     });
 
@@ -322,7 +332,7 @@ describe('Agent enrollment service', () => {
     const firstNode = await service.claim(firstClaim.request);
 
     const secondInvitation = await service.createInvitation(controller.principalId, {
-      cardId: firstInvitation.card.cardId,
+      cardId: firstNode.cardId,
     });
     const secondClaim = signedClaim({
       invitationId: secondInvitation.invitationId,
@@ -331,16 +341,19 @@ describe('Agent enrollment service', () => {
     });
     const secondNode = await service.claim(secondClaim.request);
 
-    expect(secondInvitation.card.cardId).toBe(firstInvitation.card.cardId);
+    expect(secondInvitation.identity.cardId).toBe(firstNode.cardId);
     expect(secondNode.cardId).toBe(firstNode.cardId);
     expect(secondNode.nodeId).not.toBe(firstNode.nodeId);
     expect((await pool.query(
       'select node_id from agent_nodes where principal_id = $1',
-      [firstInvitation.card.principalId],
+      [(await pool.query<{ principal_id: string }>(
+        'select principal_id from ai_cards where card_id = $1',
+        [firstNode.cardId],
+      )).rows[0]!.principal_id],
     )).rowCount).toBe(2);
 
     const revoked = await service.createInvitation(controller.principalId, {
-      cardId: firstInvitation.card.cardId,
+      cardId: firstNode.cardId,
     });
     await service.revokeInvitation(controller.principalId, revoked.invitationId);
     await expect(service.claim(signedClaim(revoked).request))
@@ -350,5 +363,32 @@ describe('Agent enrollment service', () => {
        where event_type = 'agent.invitation.revoked' and target_id = $1`,
       [revoked.invitationId],
     )).rowCount).toBe(1);
+  });
+
+  it('lets an existing Agent decline the unused fresh identity invitation by ticket', async () => {
+    const controller = await createController();
+    const before = await pool.query<{ count: string }>(
+      `select count(*)::text as count from ai_cards cards
+       join principals on principals.principal_id = cards.principal_id
+       where principals.principal_type = 'ai'`,
+    );
+    const invitation = await service.createInvitation(controller.principalId, {
+      displayName: '已有身份 Agent',
+      clientId: 'yoyoo_dev',
+    });
+
+    await service.declineInvitation({
+      invitationId: invitation.invitationId,
+      ticket: invitation.ticket,
+    });
+
+    await expect(service.claim(signedClaim(invitation).request))
+      .rejects.toBeInstanceOf(AgentEnrollmentStateError);
+    const after = await pool.query<{ count: string }>(
+      `select count(*)::text as count from ai_cards cards
+       join principals on principals.principal_id = cards.principal_id
+       where principals.principal_type = 'ai'`,
+    );
+    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
   });
 });
