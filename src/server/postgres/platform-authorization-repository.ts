@@ -64,6 +64,7 @@ function hashesMatch(left: Buffer | null, right: Buffer): boolean {
 
 type UserInfoRow = {
   subject: string;
+  client_id: string;
   scopes: AuthorizationScope[];
   principal_id: string;
   principal_type: PrincipalType;
@@ -809,9 +810,14 @@ export class PostgresPlatformAuthorizationRepository {
     }
   }
 
-  async findUserInfo(tokenHash: Buffer): Promise<{ identity: IdentityRecord; subject: string; scopes: AuthorizationScope[] }> {
+  async findUserInfo(tokenHash: Buffer): Promise<{
+    identity: IdentityRecord;
+    subject: string;
+    clientId: string;
+    scopes: AuthorizationScope[];
+  }> {
     const result = await this.pool.query<UserInfoRow>(
-      `select pat.subject, pat.scopes, p.principal_id, p.principal_type,
+      `select pat.subject, pat.client_id, pat.scopes, p.principal_id, p.principal_type,
               c.card_id, h.handle, c.display_name, c.avatar_url, c.bio,
               c.status, c.created_at, c.updated_at
        from platform_access_tokens pat
@@ -827,6 +833,7 @@ export class PostgresPlatformAuthorizationRepository {
     if (!row) throw new PlatformAccessTokenError();
     return {
       subject: row.subject,
+      clientId: row.client_id,
       scopes: row.scopes,
       identity: {
         principalId: row.principal_id,

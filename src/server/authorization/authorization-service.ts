@@ -8,7 +8,7 @@ import {
 import type { PlatformTokenResponse, ValidatedAuthorizationRequest } from '@/domain/authorization/types';
 import { projectPlatformCard } from '@/domain/identity/projections';
 import { principalIdSchema } from '@/domain/identity/schemas';
-import { PlatformAuthorizationError } from '@/server/authorization/errors';
+import { PlatformAccessTokenError, PlatformAuthorizationError } from '@/server/authorization/errors';
 import { createOpaqueToken, hashOpaqueToken } from '@/server/authentication/auth-security';
 import type { PostgresPlatformAuthorizationRepository } from '@/server/postgres/platform-authorization-repository';
 
@@ -188,6 +188,12 @@ export class PlatformAuthorizationService {
     if (!token.success) throw new PlatformAuthorizationError('Access token is invalid or expired');
     const result = await this.repository.findUserInfo(hashOpaqueToken(token.data));
     return projectPlatformCard(result.identity, { subject: result.subject, scopes: result.scopes });
+  }
+
+  async authenticateAccessToken(accessToken: string) {
+    const token = accessTokenSchema.safeParse(accessToken);
+    if (!token.success) throw new PlatformAccessTokenError('Access token is invalid or expired');
+    return this.repository.findUserInfo(hashOpaqueToken(token.data));
   }
 
   async listGrants(principalId: string) {
