@@ -16,6 +16,8 @@ describe('Account gateway', () => {
     expect(html).toContain('name="handle"');
     expect(html).toContain('name="password"');
     expect(html).toContain('type="password"');
+    expect(html).toContain('minLength="8"');
+    expect(html).toContain('密码至少 8 个字符');
     expect(html).not.toContain('Passkey 创建');
   });
 

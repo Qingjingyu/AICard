@@ -111,7 +111,7 @@ export function AccountGateway({
         )}
         <label>
           <span>密码</span>
-          <input name="password" type="password" minLength={12} maxLength={128} autoComplete={mode === 'create' ? 'new-password' : 'current-password'} required />
+          <input name="password" type="password" minLength={8} maxLength={128} autoComplete={mode === 'create' ? 'new-password' : 'current-password'} required />
         </label>
         <button className="auth-gateway__primary" type="submit" disabled={viewState === 'loading'}>
           {viewState === 'loading' ? '请稍候' : mode === 'create' ? '创建 AI Card' : '登录'}
@@ -119,7 +119,7 @@ export function AccountGateway({
       </form>
 
       <p className={`auth-gateway__feedback auth-gateway__feedback--${viewState}`} aria-live="polite">
-        {message || (mode === 'create' ? '密码至少 12 个字符。创建后可在安全设置中添加 Passkey。' : '使用你的永久编号或唯一 @Handle 登录。')}
+        {message || (mode === 'create' ? '密码至少 8 个字符。创建后可在安全设置中添加 Passkey。' : '使用你的永久编号或唯一 @Handle 登录。')}
       </p>
     </section>
   );
