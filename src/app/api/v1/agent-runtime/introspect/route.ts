@@ -33,10 +33,14 @@ export function createAgentRuntimeIntrospectionRoute(
         active: session.active,
         sub: session.subject,
         node_id: session.nodeId,
+        machine_name: session.machineName,
         client_id: session.clientId,
         audience: session.audience,
         scope: session.scope,
         expires_at: session.expiresAt.toISOString(),
+        card_id: session.cardId,
+        display_name: session.displayName,
+        handle: session.handle,
       });
     } catch (error) {
       return authorizationErrorResponse(error, id);

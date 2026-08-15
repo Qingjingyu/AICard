@@ -31,10 +31,14 @@ describe('Agent runtime introspection route', () => {
       active: true,
       subject: `sub_${'b'.repeat(43)}`,
       nodeId: '019f78ba-6ea8-7e85-bdaf-05b5fe7aa0a1',
+      machineName: 'research-agent',
       clientId: 'yoyoo_dev',
       audience: 'yoyoo',
       scope: 'agent.runtime',
       expiresAt: new Date('2026-08-09T12:00:00.000Z'),
+      cardId: 'AI_100001',
+      displayName: '悠悠助理',
+      handle: 'ai_100001',
     });
     const POST = createAgentRuntimeIntrospectionRoute({
       beforeRequest: vi.fn().mockResolvedValue(undefined),
@@ -52,10 +56,14 @@ describe('Agent runtime introspection route', () => {
       active: true,
       sub: `sub_${'b'.repeat(43)}`,
       node_id: '019f78ba-6ea8-7e85-bdaf-05b5fe7aa0a1',
+      machine_name: 'research-agent',
       client_id: 'yoyoo_dev',
       audience: 'yoyoo',
       scope: 'agent.runtime',
       expires_at: '2026-08-09T12:00:00.000Z',
+      card_id: 'AI_100001',
+      display_name: '悠悠助理',
+      handle: 'ai_100001',
     });
     expect(introspectRuntimeToken).toHaveBeenCalledWith(token);
     expect(JSON.stringify(body)).not.toContain(token);

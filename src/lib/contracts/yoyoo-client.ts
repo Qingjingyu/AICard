@@ -8,7 +8,7 @@ export const YOYOO_CLIENT_CONTRACT = {
   clientId: 'yoyoo_dev',
   audience: 'yoyoo',
   redirectUri: 'http://localhost:4173/auth/aicard/callback',
-  scopes: ['card.basic', 'card.handle', 'offline_access'],
+  scopes: ['card.basic', 'card.handle', 'offline_access', 'agent.enroll'],
 } as const;
 
 export const yoyooTokenResponseSchema = z
