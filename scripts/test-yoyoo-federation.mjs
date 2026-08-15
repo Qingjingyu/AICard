@@ -202,19 +202,67 @@ async function postJson(request, url, body, headers = {}) {
 }
 
 async function runAgentAcceptance(page, aicardDatabaseUrl, yoyooDatabaseUrl) {
-  const agentHandle = `yoyoo_agent_${Date.now().toString(36)}`;
-  const machineName = 'yoyoo-federation-agent';
+  const parseAdmissionParameters = (instructions) => {
+    const marker = instructions.lastIndexOf('自动接入参数（JSON');
+    const start = instructions.indexOf('{', marker);
+    const end = instructions.indexOf('\n\n--- AI Card', start);
+    assert(marker >= 0 && start >= 0 && end > start, 'Yoyoo did not return complete Agent parameters');
+    return JSON.parse(instructions.slice(start, end));
+  };
+  const createRoom = async (name) => {
+    const response = await postJson(
+      page.request,
+      `${yoyooOrigin}/api/v1/rooms`,
+      { name },
+      { 'Idempotency-Key': `federation-room-${uuidv7()}` },
+    );
+    assert(response.status() === 201, `Yoyoo room creation returned ${response.status()}`);
+    return (await response.json()).room.id;
+  };
+  const createAdmission = async (roomId) => {
+    const response = await postJson(
+      page.request,
+      `${yoyooOrigin}/api/v1/workspaces/current/agent-invitations`,
+      {
+        displayName: 'YOS 联邦验收 Agent',
+        roomIds: [roomId],
+        permissions: ['message.read', 'message.write'],
+      },
+    );
+    assert(response.status() === 201, `Yoyoo Agent invitation returned ${response.status()}`);
+    const invitation = (await response.json()).invitation;
+    return { invitation, parameters: parseAdmissionParameters(invitation.instructions) };
+  };
+  const authenticateNode = async (nodeId, privateKey) => {
+    const challengeResponse = await postJson(
+      page.request,
+      `${aicardOrigin}/api/v1/agent-nodes/challenge`,
+      { nodeId },
+    );
+    assert(challengeResponse.status() === 200, `AI Card challenge returned ${challengeResponse.status()}`);
+    const challenge = await challengeResponse.json();
+    const payload = ['aicard-agent-runtime-v1', nodeId, 'yoyoo_dev', challenge.challenge].join('\n');
+    const response = await postJson(
+      page.request,
+      `${aicardOrigin}/api/v1/agent-nodes/authenticate`,
+      {
+        nodeId,
+        clientId: 'yoyoo_dev',
+        challengeId: challenge.challengeId,
+        challenge: challenge.challenge,
+        signature: sign(null, Buffer.from(payload, 'utf8'), privateKey).toString('base64url'),
+      },
+    );
+    assert(response.status() === 200, `AI Card runtime authentication returned ${response.status()}`);
+    const body = await response.json();
+    assert(body.runtime?.audience === 'yoyoo', 'AI Card issued a token for the wrong audience');
+    return body.runtime.accessToken;
+  };
 
-  await page.goto(`${aicardOrigin}/me/card`);
-  await page.getByLabel('中文昵称').fill('YOS 联邦验收 Agent');
-  await page.getByLabel('@Handle', { exact: true }).last().fill(agentHandle);
-  await page.getByRole('button', { name: '创建邀请' }).click();
-  const instruction = page.getByRole('textbox', { name: '完整接入指令' });
-  await instruction.waitFor();
-  const instructionText = await instruction.inputValue();
-  const invitationId = instructionText.match(/邀请 ID：([^\n]+)/)?.[1];
-  const ticket = instructionText.match(/邀请票据：([^\n]+)/)?.[1];
-  assert(invitationId && ticket, 'AI Card did not return a complete one-time Agent invitation');
+  const roomId = await createRoom('YOS 联邦验收房间');
+  const { invitation, parameters } = await createAdmission(roomId);
+  assert(parameters.yoyooInvitationId === invitation.invitationId, 'Yoyoo invitation IDs diverged');
+  const machineName = parameters.machineName;
 
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
   const publicKeySpki = publicKey.export({ format: 'der', type: 'spki' }).toString('base64url');
@@ -222,7 +270,7 @@ async function runAgentAcceptance(page, aicardDatabaseUrl, yoyooDatabaseUrl) {
   const claimSecret = randomBytes(32).toString('base64url');
   const claimPayload = [
     'aicard-agent-claim-v1',
-    invitationId,
+    parameters.identityInvitationId,
     claimId,
     machineName,
     publicKeySpki,
@@ -231,8 +279,8 @@ async function runAgentAcceptance(page, aicardDatabaseUrl, yoyooDatabaseUrl) {
     page.request,
     `${aicardOrigin}/api/v1/agent-enrollment/claim`,
     {
-      invitationId,
-      ticket,
+      invitationId: parameters.identityInvitationId,
+      ticket: parameters.identityTicket,
       claimId,
       claimSecret,
       machineName,
@@ -244,17 +292,22 @@ async function runAgentAcceptance(page, aicardDatabaseUrl, yoyooDatabaseUrl) {
   const claimed = await claimResponse.json();
   assert(claimed.cardId === 'AI_100002', 'The first controlled AI did not receive the next permanent Card ID');
   assert(claimed.connectionStatus === 'connected', 'The claimed AI Card node was not connected');
-
-  await page.goto(`${yoyooOrigin}/settings/agents`);
-  await page.locator('.agent-directory-header').getByRole('link', { name: '授权 AI 接入' }).click();
-  await page.getByRole('heading', { name: '允许 Yoyoo 认识你？' }).waitFor();
-  await page.getByText('YOS 联邦验收 Agent', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '允许访问' }).click();
-  await page.waitForURL((url) => (
-    url.origin === yoyooOrigin
-    && url.pathname === '/settings/agents'
-    && url.searchParams.get('aicard') === 'agent_connected'
-  ));
+  const accessToken = await authenticateNode(claimed.nodeId, privateKey);
+  const yoyooClaimId = uuidv7();
+  const admissionResponse = await postJson(
+    page.request,
+    `${yoyooOrigin}/api/v1/agent-admissions/claim`,
+    {
+      invitationId: parameters.yoyooInvitationId,
+      ticket: parameters.yoyooTicket,
+      claimId: yoyooClaimId,
+    },
+    { authorization: `Bearer ${accessToken}` },
+  );
+  assert(admissionResponse.status() === 200, `Yoyoo Agent admission returned ${admissionResponse.status()}`);
+  const admitted = (await admissionResponse.json()).admission;
+  assert(admitted.cardId === claimed.cardId, 'Yoyoo retained the wrong permanent AI Card ID');
+  assert(admitted.roomIds.length === 1 && admitted.roomIds[0] === roomId, 'Yoyoo admitted the Agent to the wrong room');
 
   const firstMapping = await query(
     yoyooDatabaseUrl,
@@ -276,35 +329,7 @@ async function runAgentAcceptance(page, aicardDatabaseUrl, yoyooDatabaseUrl) {
   assert(firstMapping.rows[0].credential_count === 0, 'Yoyoo created a legacy yya_ credential for the AI Card');
   const agentPrincipalId = firstMapping.rows[0].principal_id;
   const originalSubject = firstMapping.rows[0].subject;
-
-  const challengeResponse = await postJson(
-    page.request,
-    `${aicardOrigin}/api/v1/agent-nodes/challenge`,
-    { nodeId: claimed.nodeId },
-  );
-  assert(challengeResponse.status() === 200, `AI Card runtime challenge returned ${challengeResponse.status()}`);
-  const challenge = await challengeResponse.json();
-  const runtimePayload = [
-    'aicard-agent-runtime-v1',
-    claimed.nodeId,
-    'yoyoo_dev',
-    challenge.challenge,
-  ].join('\n');
-  const runtimeResponse = await postJson(
-    page.request,
-    `${aicardOrigin}/api/v1/agent-nodes/authenticate`,
-    {
-      nodeId: claimed.nodeId,
-      clientId: 'yoyoo_dev',
-      challengeId: challenge.challengeId,
-      challenge: challenge.challenge,
-      signature: sign(null, Buffer.from(runtimePayload, 'utf8'), privateKey).toString('base64url'),
-    },
-  );
-  assert(runtimeResponse.status() === 200, `AI Card runtime authentication returned ${runtimeResponse.status()}`);
-  const runtime = await runtimeResponse.json();
-  assert(runtime.runtime?.audience === 'yoyoo', 'AI Card issued the runtime token for the wrong audience');
-  const authorization = `Bearer ${runtime.runtime.accessToken}`;
+  const authorization = `Bearer ${accessToken}`;
 
   const heartbeat = await postJson(
     page.request,
@@ -315,22 +340,6 @@ async function runAgentAcceptance(page, aicardDatabaseUrl, yoyooDatabaseUrl) {
   assert(heartbeat.status() === 200, `Yoyoo rejected the AI Card runtime token with ${heartbeat.status()}`);
   const heartbeatBody = await heartbeat.json();
   assert(heartbeatBody.agent.principalId === agentPrincipalId, 'Runtime authentication resolved the wrong Yoyoo Principal');
-
-  const roomResponse = await postJson(
-    page.request,
-    `${yoyooOrigin}/api/v1/rooms`,
-    { name: 'YOS 联邦验收房间' },
-    { 'Idempotency-Key': `federation-room-${uuidv7()}` },
-  );
-  assert(roomResponse.status() === 201, `Yoyoo room creation returned ${roomResponse.status()}`);
-  const createdRoom = await roomResponse.json();
-  const roomId = createdRoom.room.id;
-  const addMemberResponse = await postJson(
-    page.request,
-    `${yoyooOrigin}/api/v1/rooms/${roomId}/members`,
-    { principalId: agentPrincipalId },
-  );
-  assert(addMemberResponse.status() === 200, `Yoyoo Agent room admission returned ${addMemberResponse.status()}`);
 
   const directoryResponse = await page.request.get(`${yoyooOrigin}/api/v1/agent-gateway/directory`, {
     headers: { authorization },
@@ -361,12 +370,32 @@ async function runAgentAcceptance(page, aicardDatabaseUrl, yoyooDatabaseUrl) {
     [roomId, agentPrincipalId],
   );
   assert(storedMessage.rowCount === 1, 'The authorized AI Card Agent message was not stored exactly once');
-
   await page.goto(`${yoyooOrigin}/settings/agents`);
-  await page.locator('.agent-directory-header').getByRole('link', { name: '授权 AI 接入' }).click();
-  await page.getByText('YOS 联邦验收 Agent', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '允许访问' }).click();
-  await page.waitForURL((url) => url.origin === yoyooOrigin && url.searchParams.get('aicard') === 'agent_connected');
+  await page.getByText(claimed.cardId, { exact: false }).first().waitFor();
+  await page.getByText(machineName, { exact: false }).first().waitFor();
+
+  const second = await createAdmission(roomId);
+  const declineResponse = await postJson(
+    page.request,
+    `${aicardOrigin}/api/v1/agent-enrollment/decline`,
+    {
+      invitationId: second.parameters.identityInvitationId,
+      ticket: second.parameters.identityTicket,
+    },
+  );
+  assert(declineResponse.status() === 200, `Unused AI Card invitation decline returned ${declineResponse.status()}`);
+  const reusedAccessToken = await authenticateNode(claimed.nodeId, privateKey);
+  const reusedAdmissionResponse = await postJson(
+    page.request,
+    `${yoyooOrigin}/api/v1/agent-admissions/claim`,
+    {
+      invitationId: second.parameters.yoyooInvitationId,
+      ticket: second.parameters.yoyooTicket,
+      claimId: uuidv7(),
+    },
+    { authorization: `Bearer ${reusedAccessToken}` },
+  );
+  assert(reusedAdmissionResponse.status() === 200, `Existing AI Card reuse returned ${reusedAdmissionResponse.status()}`);
   const reusedMapping = await query(
     yoyooDatabaseUrl,
     `select principal_id, subject,
@@ -383,17 +412,18 @@ async function runAgentAcceptance(page, aicardDatabaseUrl, yoyooDatabaseUrl) {
 
   const cardResult = await query(
     aicardDatabaseUrl,
-    `select cards.card_id, principals.principal_type, nodes.node_id
-       from card_handles handles
-       join ai_cards cards on cards.card_id = handles.card_id
+    `select cards.card_id, principals.principal_type, nodes.node_id,
+            (select count(*)::int from ai_cards where card_id like 'AI_%') as card_count
+       from ai_cards cards
        join principals on principals.principal_id = cards.principal_id
        join agent_nodes nodes on nodes.principal_id = cards.principal_id
-      where handles.handle = $1 and handles.is_current`,
-    [agentHandle],
+      where cards.card_id = $1`,
+    [claimed.cardId],
   );
   assert(cardResult.rowCount === 1, 'AI Card did not retain exactly one claimed YOS identity');
   assert(cardResult.rows[0].principal_type === 'ai', 'The claimed YOS Card is not an AI identity');
   assert(cardResult.rows[0].node_id === claimed.nodeId, 'The YOS runtime node moved to another AI Card');
+  assert(cardResult.rows[0].card_count === 2, 'Existing identity reuse created a second Agent Card');
 }
 
 async function runBrowserAcceptance(aicardDatabaseUrl, yoyooDatabaseUrl) {
