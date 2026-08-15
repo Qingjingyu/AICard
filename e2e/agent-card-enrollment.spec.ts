@@ -40,7 +40,6 @@ test.afterAll(async () => {
 test('creates, claims, displays, and revokes an AI node', async ({ page }, testInfo) => {
   const suffix = `${testInfo.project.name.startsWith('mobile') ? 'm' : 'd'}${Date.now().toString(36)}`;
   controllerHandle = `owner_${suffix}`;
-  const agentHandle = `agent_${suffix}`;
 
   await page.goto('/');
   await page.getByLabel('昵称').fill('AI 控制者');
@@ -50,7 +49,6 @@ test('creates, claims, displays, and revokes an AI node', async ({ page }, testI
   await expect(page).toHaveURL(/\/me\/card$/);
 
   await page.getByLabel('中文昵称').fill('悠悠助理');
-  await page.getByLabel('@Handle', { exact: true }).last().fill(agentHandle);
   await page.getByRole('button', { name: '创建邀请' }).click();
   const instruction = page.getByRole('textbox', { name: '完整接入指令' });
   await expect(instruction).toBeVisible();
@@ -80,10 +78,13 @@ test('creates, claims, displays, and revokes an AI node', async ({ page }, testI
   expect(claimed).toMatchObject({
     displayName: '悠悠助理', machineName, claimStatus: 'claimed', connectionStatus: 'connected',
   });
+  expect(claimed.cardId).toMatch(/^AI_[1-9][0-9]{5,}$/u);
 
   await page.reload();
-  await expect(page.getByText('悠悠助理')).toBeVisible();
-  await expect(page.getByText('已连接')).toBeVisible();
+  const agentPanel = page.getByLabel('AI 身份');
+  await expect(agentPanel.getByText('悠悠助理')).toBeVisible();
+  await expect(agentPanel.getByText(new RegExp(claimed.cardId, 'u'))).toBeVisible();
+  await expect(agentPanel.getByText('已连接')).toBeVisible();
   await expect(page.getByRole('textbox', { name: '完整接入指令' })).toHaveCount(0);
 
   await page.getByRole('button', { name: '添加节点' }).click();

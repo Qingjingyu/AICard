@@ -5,9 +5,9 @@ import { useState } from 'react';
 
 export type ManagedAgentView = {
   invitationId: string;
-  cardId: string;
+  cardId: string | null;
   displayName: string;
-  handle: string;
+  handle: string | null;
   invitationStatus: 'pending' | 'claimed' | 'expired' | 'revoked';
   expiresAt: string;
   nodeId: string | null;
@@ -20,7 +20,7 @@ type InvitationResponse = {
   invitationId: string;
   expiresAt: string;
   instructions: string;
-  card: { cardId: string; displayName: string; handle: string };
+  identity: { cardId: string | null; displayName: string; handle: string | null };
   error?: { message?: string };
 };
 
@@ -58,7 +58,6 @@ export function AgentPanel({ agents }: { agents: ManagedAgentView[] }) {
         headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken() },
         body: JSON.stringify({
           displayName: formData.get('displayName'),
-          handle: formData.get('handle'),
         }),
       }));
       setInstructions(result.instructions);
@@ -149,17 +148,6 @@ export function AgentPanel({ agents }: { agents: ManagedAgentView[] }) {
           <span>中文昵称</span>
           <input name="displayName" required maxLength={64} placeholder="例如：悠悠助理" />
         </label>
-        <label>
-          <span>@Handle</span>
-          <input
-            name="handle"
-            required
-            minLength={3}
-            maxLength={32}
-            pattern="[a-z][a-z0-9_]{2,31}"
-            placeholder="例如：yoyoo_assistant"
-          />
-        </label>
         <button type="submit" disabled={busy !== null}>创建邀请</button>
       </form>
 
@@ -179,7 +167,7 @@ export function AgentPanel({ agents }: { agents: ManagedAgentView[] }) {
             <li key={agent.invitationId}>
               <div className="agent-panel__identity">
                 <strong>{agent.displayName}</strong>
-                <span>@{agent.handle} · {agent.cardId}</span>
+                <span>{agent.handle && agent.cardId ? `@${agent.handle} · ${agent.cardId}` : '认领成功后自动颁发 AI Card'}</span>
               </div>
               <div className="agent-panel__state">
                 <span data-state={agent.connectionStatus ?? agent.invitationStatus}>
@@ -191,12 +179,12 @@ export function AgentPanel({ agents }: { agents: ManagedAgentView[] }) {
                 )}
               </div>
               <div className="agent-panel__actions">
-                {agent.nodeId && agent.connectionStatus !== 'revoked' ? (
+                {agent.nodeId && agent.cardId && agent.connectionStatus !== 'revoked' ? (
                   <>
                     <button
                       type="button"
                       disabled={busy !== null}
-                      onClick={() => createNodeInvitation(agent.cardId)}
+                      onClick={() => createNodeInvitation(agent.cardId!)}
                     >添加节点</button>
                     <button
                       type="button"
