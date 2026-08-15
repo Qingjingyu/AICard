@@ -33,4 +33,5 @@ export type PlatformScope =
   | 'agent.profile'
   | 'agent.presence'
   | 'offline_access'
-  | 'agent.runtime';
+  | 'agent.runtime'
+  | 'agent.enroll';

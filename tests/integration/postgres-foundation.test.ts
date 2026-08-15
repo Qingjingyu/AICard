@@ -56,6 +56,7 @@ describe('PostgreSQL foundation', () => {
       '0012_reference_product_sessions.sql',
       '0013_aicard_web_registration_client.sql',
       '0014_shared_resource_audiences.sql',
+      '0015_deferred_agent_identity_and_enroll_scope.sql',
     ]);
     for (const migration of result.rows) {
       expect(migration.checksum).toMatch(/^[a-f0-9]{64}$/);

@@ -2,7 +2,7 @@ import { createPublicKey, verify } from 'node:crypto';
 
 import { z } from 'zod';
 
-import { cardIdSchema, displayNameSchema, handleSchema, principalIdSchema } from './schemas';
+import { cardIdSchema, displayNameSchema, principalIdSchema } from './schemas';
 
 const opaqueTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const signatureSchema = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
@@ -14,8 +14,8 @@ export const machineNameSchema = z.string()
   .pipe(z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/, 'machine_name has an invalid format'));
 
 export const createAgentInvitationSchema = z.union([
-  z.object({ displayName: displayNameSchema, handle: handleSchema }),
-  z.object({ cardId: cardIdSchema }),
+  z.object({ displayName: displayNameSchema, clientId: platformClientIdSchema.default('yoyoo_dev') }),
+  z.object({ cardId: cardIdSchema, clientId: platformClientIdSchema.default('yoyoo_dev') }),
 ]);
 
 export const agentClaimSchema = z.object({
@@ -94,7 +94,7 @@ export function verifyAgentSignature(publicKey: string, payload: string, signatu
 
 export function buildAgentEnrollmentInstructions(input: {
   displayName: string;
-  cardId: string;
+  cardId?: string | null;
   invitationId: string;
   serviceUrl: string;
   ticket: string;
@@ -102,12 +102,12 @@ export function buildAgentEnrollmentInstructions(input: {
   recommendedMachineName: string;
 }): string {
   displayNameSchema.parse(input.displayName);
-  cardIdSchema.parse(input.cardId);
+  if (input.cardId) cardIdSchema.parse(input.cardId);
   principalIdSchema.parse(input.invitationId);
   return `请将当前 Agent 接入 AI Card：
 
 昵称：${input.displayName}
-AI Card ID：${input.cardId}
+${input.cardId ? `AI Card ID：${input.cardId}` : 'AI Card ID：成功认领后自动颁发，不会因未使用邀请占用编号'}
 服务地址：${input.serviceUrl}
 邀请 ID：${input.invitationId}
 邀请票据：${input.ticket}
