@@ -9,13 +9,13 @@ describe('platform client registration document', () => {
       displayName: 'Yoyoo Mobile',
       audience: 'yoyoo:mobile',
       redirectUris: ['https://mobile.yoyooai.com/auth/aicard/callback'],
-      scopes: ['card.basic', 'card.handle', 'card.id'],
+      scopes: ['card.basic', 'card.handle', 'card.id', 'agent.enroll'],
     }))).toEqual({
       clientId: 'yoyoo_mobile',
       displayName: 'Yoyoo Mobile',
       audience: 'yoyoo:mobile',
       redirectUris: ['https://mobile.yoyooai.com/auth/aicard/callback'],
-      scopes: ['card.basic', 'card.handle', 'card.id'],
+      scopes: ['card.basic', 'card.handle', 'card.id', 'agent.enroll'],
     });
   });
 

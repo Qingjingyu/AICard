@@ -14,6 +14,7 @@ const supportedScopes = [
   'card.id',
   'offline_access',
   'agent.runtime',
+  'agent.enroll',
 ] as const;
 
 const documentSchema = z.object({

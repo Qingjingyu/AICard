@@ -10,6 +10,7 @@
     "card.handle",
     "card.id",
     "offline_access",
-    "agent.runtime"
+    "agent.runtime",
+    "agent.enroll"
   ]
 }
