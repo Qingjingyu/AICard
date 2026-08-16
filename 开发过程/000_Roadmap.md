@@ -8,9 +8,9 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 
 版本：v0.2
 
-当前阶段：Phase 8G - 一段话 Agent 接入已实现并完成本地全量自测；Phase 8F 仍是生产部署基线
+当前阶段：Phase 8G - 一段话 Agent 接入已部署并完成公网基础设施验收
 
-下一切片：在备份、回滚和明确发布审批后部署 Phase 8G，并用真实生产 YOS 完成接入、收发、重启和撤销冒烟；随后进入 Phase 7
+下一切片：用真实生产 YOS 完成接入、收发、重启和撤销冒烟；随后进入 Phase 7
 
 首个接入平台：Yoyoo
 
@@ -51,10 +51,10 @@ AI Card 成为面向 AI 时代的人类与 AI 的统一身份、鉴权和授权�
 | 8D | 旗下产品受控登记、配置防漂移与生产只读体检 | Completed (Local Self-Tested) |
 | 8E | 独立镜像、数据库、正式客户端、反代、体检与回滚发布包 | Deployed + Publicly Self-Verified |
 | 8F | Yoyoo 内置登录/创建入口、精确来源 CORS 与原有 PKCE 回调 | Deployed + Publicly Self-Verified |
-| 8G | 延迟 Agent 发卡、平台代邀、已有 Card 复用与运行机器身份 | Completed (Local Self-Tested) |
+| 8G | 延迟 Agent 发卡、平台代邀、已有 Card 复用与运行机器身份 | Deployed + Public Infrastructure Verified |
 | 7 | 安全加固、恢复演练和 v0.1 交接 | Pending |
 
-Phase 3-6B3 的“Completed”表示实现、隔离 PostgreSQL、Chrome 虚拟认证器、协议测试 Agent，以及桌面/移动端自动化自测完成。Phase 8A 表示权威发号与密码账号门禁通过；Phase 8B 表示独立参考产品经公共 HTTP 接口完成创建/登录、授权、回调、本地映射、重复恢复和第二产品同卡验收。Phase 8F 在隔离 PostgreSQL 与双 HTTPS 生产构建中完成 Yoyoo 同页创建、自动授权、第二浏览器登录、稳定身份复用、密码目的地限制和 YOS Agent 运行时验收，并于 2026-08-15 以 `aicard:11bb31f`、`yoyoo-space:316c5f6` 发布。Phase 8G 增加延迟发卡、`agent.enroll` 平台代邀、票据拒绝/撤销、权威机器名和已有 Card 复用；本地通过 103 个单元测试、62 个集成测试、32 个桌面/移动 Playwright 测试、构建及跨 Yoyoo 联邦验收，但尚未部署或完成真实生产 YOS 冒烟。Phase 8C 与 8E 已于 2026-08-14 部署到 `id.yoyooai.com` 与 `app.yoyooai.com`。Phase 8D 是已通过本地全量门禁的内部产品登记和只读生产体检，不是公共动态客户端注册。项目尚未经过独立安全验收或真实硬件 Passkey 人工验收；账号找回、密码变更和生产级密钥管理仍未实现。
+Phase 3-6B3 的“Completed”表示实现、隔离 PostgreSQL、Chrome 虚拟认证器、协议测试 Agent，以及桌面/移动端自动化自测完成。Phase 8A 表示权威发号与密码账号门禁通过；Phase 8B 表示独立参考产品经公共 HTTP 接口完成创建/登录、授权、回调、本地映射、重复恢复和第二产品同卡验收。Phase 8F 在隔离 PostgreSQL 与双 HTTPS 生产构建中完成 Yoyoo 同页创建、自动授权、第二浏览器登录、稳定身份复用、密码目的地限制和 YOS Agent 运行时验收，并于 2026-08-15 以 `aicard:11bb31f`、`yoyoo-space:316c5f6` 发布。Phase 8G 增加延迟发卡、`agent.enroll` 平台代邀、票据拒绝/撤销、权威机器名和已有 Card 复用；本地通过 103 个单元测试、62 个集成测试、32 个桌面/移动 Playwright 测试、构建及跨 Yoyoo 联邦验收。2026-08-16 以 `aicard:7ad73f2` 发布到 `id.yoyooai.com`，应用 `0015` 并验证生产客户端合同、production doctor、双站健康、精确来源 CORS 和失败关闭。发布过程发现生产客户端清单漏列 `agent.enroll`，经测试先行修复后再切换，没有绕过防漂移门禁。真实生产 YOS 冒烟仍待执行。Phase 8C 与 8E 已于 2026-08-14 部署到 `id.yoyooai.com` 与 `app.yoyooai.com`。Phase 8D 是已通过本地全量门禁的内部产品登记和只读生产体检，不是公共动态客户端注册。项目尚未经过独立安全验收或真实硬件 Passkey 人工验收；账号找回、密码变更和生产级密钥管理仍未实现。
 
 ## V0.1 Completion Conditions
 
